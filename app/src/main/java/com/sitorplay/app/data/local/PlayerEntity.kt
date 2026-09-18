@@ -17,7 +17,8 @@ data class PlayerEntity(
     val projectedPoints: Double,
     val opponentDefenseRank: Int,
     val injuryStatus: InjuryStatus,
-    val rosterSlot: RosterSlot
+    val rosterSlot: RosterSlot,
+    val externalId: String? = null
 )
 
 fun PlayerEntity.toDomain(): Player = Player(
@@ -29,7 +30,8 @@ fun PlayerEntity.toDomain(): Player = Player(
     projectedPoints = projectedPoints,
     opponentDefenseRank = opponentDefenseRank,
     injuryStatus = injuryStatus,
-    rosterSlot = rosterSlot
+    rosterSlot = rosterSlot,
+    externalId = externalId
 )
 
 fun Player.toEntity(): PlayerEntity = PlayerEntity(
@@ -41,5 +43,6 @@ fun Player.toEntity(): PlayerEntity = PlayerEntity(
     projectedPoints = projectedPoints,
     opponentDefenseRank = opponentDefenseRank,
     injuryStatus = injuryStatus,
-    rosterSlot = rosterSlot
+    rosterSlot = rosterSlot,
+    externalId = externalId
 )

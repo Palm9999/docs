@@ -1,0 +1,126 @@
+package com.sitorplay.app.data.sync
+
+import android.content.SharedPreferences
+import androidx.core.content.edit
+import com.sitorplay.app.data.local.NflPlayerDao
+import com.sitorplay.app.data.local.NflPlayerEntity
+import com.sitorplay.app.data.local.toDomain
+import com.sitorplay.app.data.remote.EspnApi
+import com.sitorplay.app.data.remote.SleeperApi
+import com.sitorplay.app.data.remote.dto.SleeperProjectionDto
+import com.sitorplay.app.domain.model.InjuryStatus
+import com.sitorplay.app.domain.model.NflPlayer
+import com.sitorplay.app.domain.model.Player
+import com.sitorplay.app.domain.model.Position
+import com.sitorplay.app.domain.model.WeeklyContext
+import java.util.concurrent.TimeUnit
+import javax.inject.Inject
+import javax.inject.Singleton
+
+private val FANTASY_POSITIONS = setOf("QB", "RB", "WR", "TE", "K", "DEF")
+private const val DIRECTORY_MAX_AGE_MS = 24L * 60 * 60 * 1000
+private const val LAST_SYNCED_KEY = "nfl_players_synced_at"
+
+@Singleton
+class NflDataRepository @Inject constructor(
+    private val sleeperApi: SleeperApi,
+    private val espnApi: EspnApi,
+    private val nflPlayerDao: NflPlayerDao,
+    private val preferences: SharedPreferences
+) {
+    /** In-memory only: this week's schedule/projections don't need to survive a process restart. */
+    private var cachedWeek: CachedWeek? = null
+
+    suspend fun refreshDirectoryIfStale() {
+        val lastSynced = preferences.getLong(LAST_SYNCED_KEY, 0)
+        val isStale = System.currentTimeMillis() - lastSynced > DIRECTORY_MAX_AGE_MS
+        if (!isStale && nflPlayerDao.count() > 0) return
+        refreshDirectory()
+    }
+
+    private suspend fun refreshDirectory() {
+        val players = sleeperApi.getAllPlayers().values
+            .filter { it.active && it.position != null && it.position in FANTASY_POSITIONS }
+            .map { dto ->
+                NflPlayerEntity(
+                    externalId = dto.player_id,
+                    name = dto.full_name ?: dto.team.orEmpty().ifBlank { dto.player_id } + " D/ST",
+                    position = Position.valueOf(dto.position!!),
+                    nflTeam = dto.team ?: "FA",
+                    injuryStatus = mapInjuryStatus(dto.injury_status)
+                )
+            }
+        nflPlayerDao.replaceAll(players)
+        preferences.edit { putLong(LAST_SYNCED_KEY, System.currentTimeMillis()) }
+    }
+
+    suspend fun searchPlayers(query: String): List<NflPlayer> {
+        if (query.isBlank()) return emptyList()
+        refreshDirectoryIfStale()
+        return nflPlayerDao.search(query.trim()).map { it.toDomain() }
+    }
+
+    suspend fun getWeeklyContext(externalId: String): WeeklyContext? {
+        val week = currentWeek()
+        val projection = week.projections[externalId]
+        val cachedPlayer = nflPlayerDao.getById(externalId)
+        val team = cachedPlayer?.nflTeam
+        return WeeklyContext(
+            projectedPoints = projection?.pts_ppr ?: projection?.pts_std ?: 0.0,
+            opponent = team?.let { week.opponentByTeam[it] },
+            injuryStatus = cachedPlayer?.injuryStatus ?: InjuryStatus.HEALTHY
+        )
+    }
+
+    /** Refreshes projectedPoints/opponent/injuryStatus for every live-linked roster player. */
+    suspend fun syncRoster(roster: List<Player>): List<Player> {
+        refreshDirectoryIfStale()
+        val week = currentWeek()
+        return roster.map { player ->
+            val externalId = player.externalId ?: return@map player
+            val cachedPlayer = nflPlayerDao.getById(externalId) ?: return@map player
+            val projection = week.projections[externalId]
+            player.copy(
+                nflTeam = cachedPlayer.nflTeam,
+                opponent = week.opponentByTeam[cachedPlayer.nflTeam] ?: player.opponent,
+                projectedPoints = projection?.pts_ppr ?: projection?.pts_std ?: player.projectedPoints,
+                injuryStatus = cachedPlayer.injuryStatus
+            )
+        }
+    }
+
+    private suspend fun currentWeek(): CachedWeek {
+        cachedWeek?.let { cached ->
+            if (System.currentTimeMillis() - cached.fetchedAtMillis < TimeUnit.MINUTES.toMillis(15)) {
+                return cached
+            }
+        }
+        val state = sleeperApi.getState()
+        val projections = sleeperApi.getProjections(state.season, state.week)
+        val scoreboard = espnApi.getScoreboard(week = state.week, year = state.season)
+        val opponentByTeam = mutableMapOf<String, String>()
+        scoreboard.events.forEach { event ->
+            val competitors = event.competitions.firstOrNull()?.competitors.orEmpty()
+            val home = competitors.firstOrNull { it.homeAway == "home" }
+            val away = competitors.firstOrNull { it.homeAway == "away" }
+            if (home != null && away != null) {
+                opponentByTeam[home.team.abbreviation] = away.team.abbreviation
+                opponentByTeam[away.team.abbreviation] = home.team.abbreviation
+            }
+        }
+        return CachedWeek(projections, opponentByTeam, System.currentTimeMillis()).also { cachedWeek = it }
+    }
+
+    private fun mapInjuryStatus(raw: String?): InjuryStatus = when (raw?.trim()?.lowercase()) {
+        null, "", "active" -> InjuryStatus.HEALTHY
+        "questionable" -> InjuryStatus.QUESTIONABLE
+        "doubtful" -> InjuryStatus.DOUBTFUL
+        else -> InjuryStatus.OUT // "Out", "IR", "PUP", "Suspended", etc. — don't start them
+    }
+
+    private data class CachedWeek(
+        val projections: Map<String, SleeperProjectionDto>,
+        val opponentByTeam: Map<String, String>,
+        val fetchedAtMillis: Long
+    )
+}
