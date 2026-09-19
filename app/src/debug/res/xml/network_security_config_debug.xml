@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-build-only: trust user-installed CAs in addition to the system store.
+  This exists purely so a debug build can be tested behind a local dev proxy
+  (e.g. mitmproxy/Charles) that re-signs traffic with a locally-trusted CA.
+  Never bundled into the release build.
+-->
+<network-security-config>
+    <base-config>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
