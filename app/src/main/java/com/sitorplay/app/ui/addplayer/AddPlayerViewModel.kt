@@ -1,8 +1,10 @@
 package com.sitorplay.app.ui.addplayer
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sitorplay.app.data.repository.PlayerRepository
+import com.sitorplay.app.data.settings.AppSettingsRepository
 import com.sitorplay.app.data.sync.NflDataRepository
 import com.sitorplay.app.domain.model.InjuryStatus
 import com.sitorplay.app.domain.model.NflPlayer
@@ -58,7 +60,9 @@ data class AddPlayerUiState(
 @HiltViewModel
 class AddPlayerViewModel @Inject constructor(
     private val playerRepository: PlayerRepository,
-    private val nflDataRepository: NflDataRepository
+    private val nflDataRepository: NflDataRepository,
+    private val appSettingsRepository: AppSettingsRepository,
+    savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AddPlayerUiState())
@@ -71,6 +75,13 @@ class AddPlayerViewModel @Inject constructor(
             .debounce(300)
             .onEach { query -> runSearch(query) }
             .launchIn(viewModelScope)
+
+        // Arrived here from a waiver-wire "quick add" tap: pre-select that player.
+        savedStateHandle.get<String>("prefillExternalId")?.let { externalId ->
+            viewModelScope.launch {
+                nflDataRepository.getCachedPlayer(externalId)?.let { selectPlayer(it) }
+            }
+        }
     }
 
     fun onSearchQueryChange(query: String) {
@@ -126,6 +137,7 @@ class AddPlayerViewModel @Inject constructor(
         viewModelScope.launch {
             playerRepository.addPlayer(
                 Player(
+                    teamId = appSettingsRepository.selectedTeamId.value,
                     name = selected.name,
                     position = selected.position,
                     nflTeam = selected.nflTeam,
@@ -147,6 +159,7 @@ class AddPlayerViewModel @Inject constructor(
         viewModelScope.launch {
             playerRepository.addPlayer(
                 Player(
+                    teamId = appSettingsRepository.selectedTeamId.value,
                     name = form.name.trim(),
                     position = form.position,
                     nflTeam = form.nflTeam.trim().uppercase(),

@@ -13,7 +13,9 @@ data class NflPlayerEntity(
     val name: String,
     val position: Position,
     val nflTeam: String,
-    val injuryStatus: InjuryStatus
+    val injuryStatus: InjuryStatus,
+    val injuryBodyPart: String? = null,
+    val injuryNotes: String? = null
 )
 
 fun NflPlayerEntity.toDomain(): NflPlayer = NflPlayer(
@@ -21,5 +23,7 @@ fun NflPlayerEntity.toDomain(): NflPlayer = NflPlayer(
     name = name,
     position = position,
     nflTeam = nflTeam,
-    injuryStatus = injuryStatus
+    injuryStatus = injuryStatus,
+    injuryBodyPart = injuryBodyPart,
+    injuryNotes = injuryNotes
 )

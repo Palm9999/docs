@@ -64,7 +64,18 @@ fun RosterScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("This Week's Lineup") },
+                title = {
+                    Column {
+                        Text("This Week's Lineup")
+                        if (uiState.teamName.isNotBlank()) {
+                            Text(
+                                uiState.teamName,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
                 actions = {
                     IconButton(onClick = viewModel::syncLiveData, enabled = !isSyncing) {
                         if (isSyncing) {

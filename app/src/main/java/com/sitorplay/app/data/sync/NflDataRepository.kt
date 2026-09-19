@@ -8,10 +8,16 @@ import com.sitorplay.app.data.local.toDomain
 import com.sitorplay.app.data.remote.EspnApi
 import com.sitorplay.app.data.remote.SleeperApi
 import com.sitorplay.app.data.remote.dto.SleeperProjectionDto
+import com.sitorplay.app.data.settings.AppSettingsRepository
+import com.sitorplay.app.data.settings.ScoringFormat
 import com.sitorplay.app.domain.model.InjuryStatus
 import com.sitorplay.app.domain.model.NflPlayer
 import com.sitorplay.app.domain.model.Player
+import com.sitorplay.app.domain.model.PlayerDetailExtras
 import com.sitorplay.app.domain.model.Position
+import com.sitorplay.app.domain.model.TrendDirection
+import com.sitorplay.app.domain.model.TrendInfo
+import com.sitorplay.app.domain.model.WaiverSuggestion
 import com.sitorplay.app.domain.model.WeeklyContext
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -26,7 +32,8 @@ class NflDataRepository @Inject constructor(
     private val sleeperApi: SleeperApi,
     private val espnApi: EspnApi,
     private val nflPlayerDao: NflPlayerDao,
-    private val preferences: SharedPreferences
+    private val preferences: SharedPreferences,
+    private val appSettingsRepository: AppSettingsRepository
 ) {
     /** In-memory only: this week's schedule/projections don't need to survive a process restart. */
     private var cachedWeek: CachedWeek? = null
@@ -47,7 +54,9 @@ class NflDataRepository @Inject constructor(
                     name = dto.full_name ?: dto.team.orEmpty().ifBlank { dto.player_id } + " D/ST",
                     position = Position.valueOf(dto.position!!),
                     nflTeam = dto.team ?: "FA",
-                    injuryStatus = mapInjuryStatus(dto.injury_status)
+                    injuryStatus = mapInjuryStatus(dto.injury_status),
+                    injuryBodyPart = dto.injury_body_part,
+                    injuryNotes = dto.injury_notes
                 )
             }
         nflPlayerDao.replaceAll(players)
@@ -60,13 +69,16 @@ class NflDataRepository @Inject constructor(
         return nflPlayerDao.search(query.trim()).map { it.toDomain() }
     }
 
+    suspend fun getCachedPlayer(externalId: String): NflPlayer? =
+        nflPlayerDao.getById(externalId)?.toDomain()
+
     suspend fun getWeeklyContext(externalId: String): WeeklyContext? {
         val week = currentWeek()
         val projection = week.projections[externalId]
         val cachedPlayer = nflPlayerDao.getById(externalId)
         val team = cachedPlayer?.nflTeam
         return WeeklyContext(
-            projectedPoints = projection?.pts_ppr ?: projection?.pts_std ?: 0.0,
+            projectedPoints = projection.pointsFor(appSettingsRepository.scoringFormat.value),
             opponent = team?.let { week.opponentByTeam[it] },
             injuryStatus = cachedPlayer?.injuryStatus ?: InjuryStatus.HEALTHY
         )
@@ -76,6 +88,7 @@ class NflDataRepository @Inject constructor(
     suspend fun syncRoster(roster: List<Player>): List<Player> {
         refreshDirectoryIfStale()
         val week = currentWeek()
+        val format = appSettingsRepository.scoringFormat.value
         return roster.map { player ->
             val externalId = player.externalId ?: return@map player
             val cachedPlayer = nflPlayerDao.getById(externalId) ?: return@map player
@@ -83,9 +96,63 @@ class NflDataRepository @Inject constructor(
             player.copy(
                 nflTeam = cachedPlayer.nflTeam,
                 opponent = week.opponentByTeam[cachedPlayer.nflTeam] ?: player.opponent,
-                projectedPoints = projection?.pts_ppr ?: projection?.pts_std ?: player.projectedPoints,
+                projectedPoints = if (projection != null) projection.pointsFor(format) else player.projectedPoints,
                 injuryStatus = cachedPlayer.injuryStatus
             )
+        }
+    }
+
+    suspend fun getPlayerDetailExtras(externalId: String): PlayerDetailExtras {
+        val cached = nflPlayerDao.getById(externalId)
+        val trend = runCatching { getTrend(externalId) }.getOrNull()
+        return PlayerDetailExtras(
+            trend = trend,
+            injuryBodyPart = cached?.injuryBodyPart,
+            injuryNotes = cached?.injuryNotes
+        )
+    }
+
+    private suspend fun getTrend(externalId: String): TrendInfo? {
+        sleeperApi.getTrendingAdds().find { it.player_id == externalId }?.let {
+            return TrendInfo(TrendDirection.ADD, it.count)
+        }
+        sleeperApi.getTrendingDrops().find { it.player_id == externalId }?.let {
+            return TrendInfo(TrendDirection.DROP, it.count)
+        }
+        return null
+    }
+
+    /** Trending-add players league-wide, excluding anyone already on this roster. */
+    suspend fun getWaiverSuggestions(
+        excludeExternalIds: Set<String>,
+        position: Position? = null,
+        limit: Int = 25
+    ): List<WaiverSuggestion> {
+        refreshDirectoryIfStale()
+        val week = currentWeek()
+        val format = appSettingsRepository.scoringFormat.value
+        val trending = sleeperApi.getTrendingAdds(limit = 100)
+        return trending
+            .filter { it.player_id !in excludeExternalIds }
+            .mapNotNull { trend ->
+                val cached = nflPlayerDao.getById(trend.player_id) ?: return@mapNotNull null
+                if (position != null && cached.position != position) return@mapNotNull null
+                WaiverSuggestion(
+                    player = cached.toDomain(),
+                    trendCount = trend.count,
+                    projectedPoints = week.projections[trend.player_id].pointsFor(format),
+                    opponent = week.opponentByTeam[cached.nflTeam]
+                )
+            }
+            .take(limit)
+    }
+
+    private fun SleeperProjectionDto?.pointsFor(format: ScoringFormat): Double {
+        if (this == null) return 0.0
+        return when (format) {
+            ScoringFormat.PPR -> pts_ppr ?: pts_half_ppr ?: pts_std ?: 0.0
+            ScoringFormat.HALF_PPR -> pts_half_ppr ?: pts_ppr ?: pts_std ?: 0.0
+            ScoringFormat.STANDARD -> pts_std ?: pts_half_ppr ?: pts_ppr ?: 0.0
         }
     }
 

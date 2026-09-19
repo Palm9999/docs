@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.sitorplay.app.domain.model.Call
+import com.sitorplay.app.domain.model.TrendDirection
 import com.sitorplay.app.ui.theme.SitRed
 import com.sitorplay.app.ui.theme.StartGreen
 
@@ -34,6 +35,7 @@ fun PlayerDetailScreen(
     viewModel: PlayerDetailViewModel = androidx.hilt.navigation.compose.hiltViewModel()
 ) {
     val recommendation by viewModel.recommendation.collectAsState()
+    val extras by viewModel.extras.collectAsState()
 
     Scaffold(
         topBar = {
@@ -81,6 +83,24 @@ fun PlayerDetailScreen(
                     Text("Why:", style = MaterialTheme.typography.titleMedium)
                     current.reasons.forEach { reason ->
                         Text("• $reason", style = MaterialTheme.typography.bodyMedium)
+                    }
+
+                    extras.trend?.let { trend ->
+                        val verb = if (trend.direction == TrendDirection.ADD) "added" else "dropped"
+                        Text(
+                            "Trending: $verb by ${trend.count} fantasy teams in the last 24h",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (extras.injuryNotes != null || extras.injuryBodyPart != null) {
+                        Text("Injury report:", style = MaterialTheme.typography.titleMedium)
+                        extras.injuryBodyPart?.let {
+                            Text("Body part: $it", style = MaterialTheme.typography.bodyMedium)
+                        }
+                        extras.injuryNotes?.let {
+                            Text(it, style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
                 }
             }

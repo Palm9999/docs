@@ -15,8 +15,11 @@ class PlayerRepositoryImpl @Inject constructor(
     private val playerDao: PlayerDao
 ) : PlayerRepository {
 
-    override fun observeRoster(): Flow<List<Player>> =
-        playerDao.observeAll().map { entities -> entities.map { it.toDomain() } }
+    override fun observeRoster(teamId: Long): Flow<List<Player>> =
+        playerDao.observeByTeam(teamId).map { entities -> entities.map { it.toDomain() } }
+
+    override fun observePlayer(id: Long): Flow<Player?> =
+        playerDao.observeById(id).map { it?.toDomain() }
 
     override suspend fun addPlayer(player: Player) {
         playerDao.insert(player.toEntity())
@@ -30,9 +33,12 @@ class PlayerRepositoryImpl @Inject constructor(
         playerDao.delete(player.toEntity())
     }
 
-    override suspend fun seedIfEmpty() {
-        if (playerDao.count() == 0) {
-            playerDao.insertAll(SeedPlayers.sampleRoster().map { it.toEntity() })
+    override suspend fun rosteredExternalIds(teamId: Long): Set<String> =
+        playerDao.rosteredExternalIds(teamId).toSet()
+
+    override suspend fun seedIfEmpty(teamId: Long) {
+        if (playerDao.countForTeam(teamId) == 0) {
+            playerDao.insertAll(SeedPlayers.sampleRoster().map { it.copy(teamId = teamId).toEntity() })
         }
     }
 }

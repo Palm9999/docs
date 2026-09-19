@@ -10,14 +10,20 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface PlayerDao {
-    @Query("SELECT * FROM players ORDER BY position, projectedPoints DESC")
-    fun observeAll(): Flow<List<PlayerEntity>>
+    @Query("SELECT * FROM players WHERE teamId = :teamId ORDER BY position, projectedPoints DESC")
+    fun observeByTeam(teamId: Long): Flow<List<PlayerEntity>>
+
+    @Query("SELECT * FROM players WHERE id = :id")
+    fun observeById(id: Long): Flow<PlayerEntity?>
 
     @Query("SELECT * FROM players WHERE id = :id")
     suspend fun getById(id: Long): PlayerEntity?
 
-    @Query("SELECT COUNT(*) FROM players")
-    suspend fun count(): Int
+    @Query("SELECT COUNT(*) FROM players WHERE teamId = :teamId")
+    suspend fun countForTeam(teamId: Long): Int
+
+    @Query("SELECT externalId FROM players WHERE teamId = :teamId AND externalId IS NOT NULL")
+    suspend fun rosteredExternalIds(teamId: Long): List<String>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(player: PlayerEntity): Long

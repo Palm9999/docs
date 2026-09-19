@@ -6,6 +6,7 @@ import androidx.room.Room
 import com.sitorplay.app.data.local.AppDatabase
 import com.sitorplay.app.data.local.NflPlayerDao
 import com.sitorplay.app.data.local.PlayerDao
+import com.sitorplay.app.data.local.TeamDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -32,6 +33,9 @@ object DatabaseModule {
 
     @Provides
     fun provideNflPlayerDao(database: AppDatabase): NflPlayerDao = database.nflPlayerDao()
+
+    @Provides
+    fun provideTeamDao(database: AppDatabase): TeamDao = database.teamDao()
 
     @Provides
     @Singleton

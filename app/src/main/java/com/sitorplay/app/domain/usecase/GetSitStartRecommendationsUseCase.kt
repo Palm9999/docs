@@ -75,16 +75,11 @@ class GetSitStartRecommendationsUseCase @Inject constructor() {
         return roster.map { recommendations.getValue(it.id) }
     }
 
-    private fun adjustedProjection(player: Player): Double {
-        return player.projectedPoints * matchupMultiplier(player.opponentDefenseRank) *
-            player.injuryStatus.multiplier
-    }
-
-    private fun matchupMultiplier(defenseRank: Int): Double = when {
-        defenseRank <= 8 -> 0.85
-        defenseRank <= 24 -> 1.0
-        else -> 1.15
-    }
+    private fun adjustedProjection(player: Player): Double = MatchupScoring.adjustedProjection(
+        projectedPoints = player.projectedPoints,
+        opponentDefenseRank = player.opponentDefenseRank,
+        injuryStatus = player.injuryStatus
+    )
 
     private fun reasonsFor(player: Player, score: Double, rankIndex: Int, slots: Int): List<String> {
         val reasons = mutableListOf<String>()

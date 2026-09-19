@@ -2,6 +2,8 @@ package com.sitorplay.app
 
 import android.app.Application
 import com.sitorplay.app.data.repository.PlayerRepository
+import com.sitorplay.app.data.repository.TeamRepository
+import com.sitorplay.app.data.settings.AppSettingsRepository
 import com.sitorplay.app.data.sync.NflDataRepository
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -14,6 +16,8 @@ import javax.inject.Inject
 class SitOrPlayApp : Application() {
 
     @Inject lateinit var playerRepository: PlayerRepository
+    @Inject lateinit var teamRepository: TeamRepository
+    @Inject lateinit var appSettingsRepository: AppSettingsRepository
     @Inject lateinit var nflDataRepository: NflDataRepository
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -21,7 +25,9 @@ class SitOrPlayApp : Application() {
     override fun onCreate() {
         super.onCreate()
         applicationScope.launch {
-            playerRepository.seedIfEmpty()
+            val teamId = teamRepository.ensureDefaultTeam()
+            appSettingsRepository.ensureSelectedTeam(teamId)
+            playerRepository.seedIfEmpty(teamId)
         }
         applicationScope.launch {
             // Best-effort warm-up so the first player search isn't stuck waiting
