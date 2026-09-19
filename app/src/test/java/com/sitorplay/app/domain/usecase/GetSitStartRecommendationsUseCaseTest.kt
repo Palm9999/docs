@@ -1,11 +1,14 @@
 package com.sitorplay.app.domain.usecase
 
+import com.sitorplay.app.domain.model.BYE_WEEK_OPPONENT
 import com.sitorplay.app.domain.model.Call
 import com.sitorplay.app.domain.model.InjuryStatus
+import com.sitorplay.app.domain.model.LineupSettings
 import com.sitorplay.app.domain.model.Player
 import com.sitorplay.app.domain.model.Position
 import com.sitorplay.app.domain.model.RosterSlot
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GetSitStartRecommendationsUseCaseTest {
@@ -17,13 +20,14 @@ class GetSitStartRecommendationsUseCaseTest {
         name: String,
         projectedPoints: Double,
         defenseRank: Int = 16,
-        injuryStatus: InjuryStatus = InjuryStatus.HEALTHY
+        injuryStatus: InjuryStatus = InjuryStatus.HEALTHY,
+        opponent: String = "BBB"
     ) = Player(
         id = id,
         name = name,
         position = Position.RB,
         nflTeam = "AAA",
-        opponent = "BBB",
+        opponent = opponent,
         projectedPoints = projectedPoints,
         opponentDefenseRank = defenseRank,
         injuryStatus = injuryStatus,
@@ -114,5 +118,51 @@ class GetSitStartRecommendationsUseCaseTest {
 
         assertEquals(Call.START, result.first { it.player.id == 3L }.call)
         assertEquals(Call.SIT, result.first { it.player.id == 5L }.call)
+    }
+
+    @Test
+    fun `player on a bye week is benched even with the best raw projection`() {
+        val roster = listOf(
+            rb(1, "On bye", projectedPoints = 22.0, opponent = BYE_WEEK_OPPONENT),
+            rb(2, "Healthy starter", projectedPoints = 10.0),
+            rb(3, "Also healthy", projectedPoints = 9.0)
+        )
+
+        val result = useCase(roster)
+
+        assertEquals(Call.SIT, result.first { it.player.id == 1L }.call)
+        assertTrue(result.first { it.player.id == 1L }.reasons.any { it.contains("bye", ignoreCase = true) })
+        assertEquals(Call.START, result.first { it.player.id == 2L }.call)
+        assertEquals(Call.START, result.first { it.player.id == 3L }.call)
+    }
+
+    @Test
+    fun `disabling a position slot benches everyone at that position`() {
+        val roster = listOf(
+            rb(1, "RB1", projectedPoints = 20.0),
+            rb(2, "RB2", projectedPoints = 15.0)
+        ) + flexBlockingWrs(startId = 90)
+        val noKickerLeague = LineupSettings(k = 0)
+
+        val result = useCase(roster, noKickerLeague)
+
+        assertEquals(Call.START, result.first { it.player.id == 1L }.call)
+        assertEquals(Call.START, result.first { it.player.id == 2L }.call)
+    }
+
+    @Test
+    fun `custom lineup with three RB slots starts all three RBs`() {
+        val roster = listOf(
+            rb(1, "RB1", projectedPoints = 20.0),
+            rb(2, "RB2", projectedPoints = 15.0),
+            rb(3, "RB3", projectedPoints = 10.0)
+        )
+        val threeRbLeague = LineupSettings(rb = 3, wr = 0, te = 0, flex = 0, k = 0, def = 0)
+
+        val result = useCase(roster, threeRbLeague)
+
+        assertEquals(Call.START, result.first { it.player.id == 1L }.call)
+        assertEquals(Call.START, result.first { it.player.id == 2L }.call)
+        assertEquals(Call.START, result.first { it.player.id == 3L }.call)
     }
 }

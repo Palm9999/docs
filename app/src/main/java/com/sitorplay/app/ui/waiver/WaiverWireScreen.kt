@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -58,6 +60,7 @@ fun WaiverWireScreen(
                 selected = state.positionFilter,
                 onSelect = viewModel::setPositionFilter
             )
+            SortRow(selected = state.sortBy, onSelect = viewModel::setSortBy)
             Box(modifier = Modifier.fillMaxSize()) {
                 when {
                     state.isLoading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -74,7 +77,12 @@ fun WaiverWireScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(state.suggestions, key = { it.player.externalId }) { suggestion ->
-                            WaiverSuggestionCard(suggestion, onAdd = { onAddPlayer(suggestion.player.externalId) })
+                            WaiverSuggestionCard(
+                                suggestion,
+                                isFavorite = suggestion.player.externalId in state.favoriteIds,
+                                onAdd = { onAddPlayer(suggestion.player.externalId) },
+                                onToggleFavorite = { viewModel.toggleFavorite(suggestion.player.externalId) }
+                            )
                         }
                     }
                 }
@@ -103,8 +111,33 @@ private fun PositionFilterRow(selected: Position?, onSelect: (Position?) -> Unit
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun WaiverSuggestionCard(suggestion: WaiverSuggestion, onAdd: () -> Unit) {
+private fun SortRow(selected: WaiverSort, onSelect: (WaiverSort) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        FilterChip(
+            selected = selected == WaiverSort.TREND,
+            onClick = { onSelect(WaiverSort.TREND) },
+            label = { Text("Sort: Trending") }
+        )
+        FilterChip(
+            selected = selected == WaiverSort.PROJECTED_POINTS,
+            onClick = { onSelect(WaiverSort.PROJECTED_POINTS) },
+            label = { Text("Sort: Points") }
+        )
+    }
+}
+
+@Composable
+private fun WaiverSuggestionCard(
+    suggestion: WaiverSuggestion,
+    isFavorite: Boolean,
+    onAdd: () -> Unit,
+    onToggleFavorite: () -> Unit
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -124,6 +157,13 @@ private fun WaiverSuggestionCard(suggestion: WaiverSuggestion, onAdd: () -> Unit
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.primary
                 )
+            }
+            IconButton(onClick = onToggleFavorite) {
+                if (isFavorite) {
+                    Icon(Icons.Filled.Star, contentDescription = "Unfavorite ${suggestion.player.name}")
+                } else {
+                    Icon(Icons.Outlined.StarBorder, contentDescription = "Favorite ${suggestion.player.name}")
+                }
             }
             IconButton(onClick = onAdd) {
                 Icon(Icons.Filled.Add, contentDescription = "Add ${suggestion.player.name}")

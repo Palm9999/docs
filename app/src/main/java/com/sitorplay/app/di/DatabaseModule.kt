@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.room.Room
 import com.sitorplay.app.data.local.AppDatabase
+import com.sitorplay.app.data.local.FavoritePlayerDao
 import com.sitorplay.app.data.local.NflPlayerDao
 import com.sitorplay.app.data.local.PlayerDao
 import com.sitorplay.app.data.local.TeamDao
@@ -36,6 +37,9 @@ object DatabaseModule {
 
     @Provides
     fun provideTeamDao(database: AppDatabase): TeamDao = database.teamDao()
+
+    @Provides
+    fun provideFavoritePlayerDao(database: AppDatabase): FavoritePlayerDao = database.favoritePlayerDao()
 
     @Provides
     @Singleton

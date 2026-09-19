@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -23,8 +24,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -52,12 +55,28 @@ fun RosterScreen(
     val uiState by viewModel.uiState.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
     val syncMessage by viewModel.syncMessage.collectAsState()
+    val lastRemovedPlayer by viewModel.lastRemovedPlayer.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(syncMessage) {
         syncMessage?.let {
             snackbarHostState.showSnackbar(it)
             viewModel.consumeSyncMessage()
+        }
+    }
+
+    LaunchedEffect(lastRemovedPlayer) {
+        lastRemovedPlayer?.let { player ->
+            val result = snackbarHostState.showSnackbar(
+                message = "Removed ${player.name}",
+                actionLabel = "Undo",
+                duration = SnackbarDuration.Short
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.undoRemovePlayer()
+            } else {
+                viewModel.consumeRemovedPlayerState()
+            }
         }
     }
 
@@ -103,7 +122,8 @@ fun RosterScreen(
                 )
                 else -> RecommendationList(
                     recommendations = uiState.recommendations,
-                    onPlayerClick = onPlayerClick
+                    onPlayerClick = onPlayerClick,
+                    onRemove = viewModel::removePlayer
                 )
             }
         }
@@ -113,7 +133,8 @@ fun RosterScreen(
 @Composable
 private fun RecommendationList(
     recommendations: List<Recommendation>,
-    onPlayerClick: (Long) -> Unit
+    onPlayerClick: (Long) -> Unit,
+    onRemove: (Recommendation) -> Unit
 ) {
     val grouped = recommendations.groupBy { it.player.position }
     LazyColumn(
@@ -130,14 +151,18 @@ private fun RecommendationList(
                 )
             }
             items(group, key = { it.player.id }) { recommendation ->
-                RecommendationCard(recommendation, onClick = { onPlayerClick(recommendation.player.id) })
+                RecommendationCard(
+                    recommendation,
+                    onClick = { onPlayerClick(recommendation.player.id) },
+                    onRemove = { onRemove(recommendation) }
+                )
             }
         }
     }
 }
 
 @Composable
-private fun RecommendationCard(recommendation: Recommendation, onClick: () -> Unit) {
+private fun RecommendationCard(recommendation: Recommendation, onClick: () -> Unit, onRemove: () -> Unit) {
     val callColor = if (recommendation.call == Call.START) StartGreen else SitRed
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -145,7 +170,8 @@ private fun RecommendationCard(recommendation: Recommendation, onClick: () -> Un
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(recommendation.player.name, style = MaterialTheme.typography.bodyLarge)
@@ -156,6 +182,9 @@ private fun RecommendationCard(recommendation: Recommendation, onClick: () -> Un
                 )
             }
             CallBadge(call = recommendation.call, color = callColor)
+            IconButton(onClick = onRemove) {
+                Icon(Icons.Filled.Close, contentDescription = "Remove ${recommendation.player.name}")
+            }
         }
     }
 }

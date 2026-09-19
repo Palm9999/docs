@@ -1,6 +1,7 @@
 package com.sitorplay.app.di
 
 import com.sitorplay.app.data.remote.EspnApi
+import com.sitorplay.app.data.remote.EspnFantasyApi
 import com.sitorplay.app.data.remote.SleeperApi
 import dagger.Module
 import dagger.Provides
@@ -23,12 +24,17 @@ annotation class SleeperRetrofit
 @Retention(AnnotationRetention.BINARY)
 annotation class EspnRetrofit
 
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class EspnFantasyRetrofit
+
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
     private const val SLEEPER_BASE_URL = "https://api.sleeper.app/"
     private const val ESPN_BASE_URL = "https://site.api.espn.com/"
+    private const val ESPN_FANTASY_BASE_URL = "https://fantasy.espn.com/"
 
     @Provides
     @Singleton
@@ -61,6 +67,15 @@ object NetworkModule {
 
     @Provides
     @Singleton
+    @EspnFantasyRetrofit
+    fun provideEspnFantasyRetrofit(client: OkHttpClient, json: Json): Retrofit = Retrofit.Builder()
+        .baseUrl(ESPN_FANTASY_BASE_URL)
+        .client(client)
+        .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+        .build()
+
+    @Provides
+    @Singleton
     fun provideSleeperApi(@SleeperRetrofit retrofit: Retrofit): SleeperApi =
         retrofit.create(SleeperApi::class.java)
 
@@ -68,4 +83,9 @@ object NetworkModule {
     @Singleton
     fun provideEspnApi(@EspnRetrofit retrofit: Retrofit): EspnApi =
         retrofit.create(EspnApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideEspnFantasyApi(@EspnFantasyRetrofit retrofit: Retrofit): EspnFantasyApi =
+        retrofit.create(EspnFantasyApi::class.java)
 }

@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sitorplay.app.data.repository.PlayerRepository
+import com.sitorplay.app.data.settings.AppSettingsRepository
 import com.sitorplay.app.data.sync.NflDataRepository
 import com.sitorplay.app.domain.model.PlayerDetailExtras
 import com.sitorplay.app.domain.model.Recommendation
@@ -15,10 +16,10 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -28,6 +29,7 @@ import javax.inject.Inject
 @HiltViewModel
 class PlayerDetailViewModel @Inject constructor(
     private val playerRepository: PlayerRepository,
+    private val appSettingsRepository: AppSettingsRepository,
     private val nflDataRepository: NflDataRepository,
     private val getSitStartRecommendations: GetSitStartRecommendationsUseCase,
     savedStateHandle: SavedStateHandle
@@ -40,8 +42,11 @@ class PlayerDetailViewModel @Inject constructor(
             if (player == null) {
                 flowOf(null)
             } else {
-                playerRepository.observeRoster(player.teamId).map { roster ->
-                    getSitStartRecommendations(roster).find { it.player.id == playerId }
+                combine(
+                    playerRepository.observeRoster(player.teamId),
+                    appSettingsRepository.lineupSettings
+                ) { roster, lineupSettings ->
+                    getSitStartRecommendations(roster, lineupSettings).find { it.player.id == playerId }
                 }
             }
         }

@@ -1,5 +1,10 @@
 package com.sitorplay.app.ui.settings
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,11 +14,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -22,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -33,16 +45,26 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.sitorplay.app.data.settings.ScoringFormat
+import com.sitorplay.app.domain.model.EspnLeagueTeam
 import com.sitorplay.app.domain.model.Team
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    viewModel: SettingsViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+    viewModel: SettingsViewModel = androidx.hilt.navigation.compose.hiltViewModel(),
+    espnImportViewModel: EspnImportViewModel = androidx.hilt.navigation.compose.hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
+    val espnState by espnImportViewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> viewModel.setLockRemindersEnabled(granted) }
     var teamPendingRename by remember { mutableStateOf<Team?>(null) }
     var newTeamName by remember { mutableStateOf("") }
 
@@ -124,6 +146,61 @@ fun SettingsScreen(
                     Text("Add")
                 }
             }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            Text("Lineup Format", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Match your league's starting lineup. Set a position to 0 to disable it.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            val lineup = state.lineupSettings
+            LineupStepperRow("QB", lineup.qb, onChange = { value -> viewModel.updateLineupSettings { it.copy(qb = value) } })
+            LineupStepperRow("RB", lineup.rb, onChange = { value -> viewModel.updateLineupSettings { it.copy(rb = value) } })
+            LineupStepperRow("WR", lineup.wr, onChange = { value -> viewModel.updateLineupSettings { it.copy(wr = value) } })
+            LineupStepperRow("TE", lineup.te, onChange = { value -> viewModel.updateLineupSettings { it.copy(te = value) } })
+            LineupStepperRow("FLEX", lineup.flex, onChange = { value -> viewModel.updateLineupSettings { it.copy(flex = value) } })
+            LineupStepperRow("K", lineup.k, onChange = { value -> viewModel.updateLineupSettings { it.copy(k = value) } })
+            LineupStepperRow("DEF", lineup.def, onChange = { value -> viewModel.updateLineupSettings { it.copy(def = value) } })
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            Text("Lineup Lock Reminders", style = MaterialTheme.typography.titleMedium)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Notify me before Sunday kickoff to double-check my lineup",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(
+                    checked = state.lockRemindersEnabled,
+                    onCheckedChange = { enabled ->
+                        val needsPermission = enabled &&
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                            PackageManager.PERMISSION_GRANTED
+                        if (needsPermission) {
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            viewModel.setLockRemindersEnabled(enabled)
+                        }
+                    }
+                )
+            }
+            if (state.lockRemindersEnabled) {
+                TextButton(onClick = viewModel::sendTestNotification) {
+                    Text("Send a test notification now")
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            EspnImportSection(state = espnState, viewModel = espnImportViewModel)
         }
     }
 
@@ -145,5 +222,111 @@ fun SettingsScreen(
                 TextButton(onClick = { teamPendingRename = null }) { Text("Cancel") }
             }
         )
+    }
+}
+
+@Composable
+private fun EspnImportSection(state: EspnImportUiState, viewModel: EspnImportViewModel) {
+    Text("Import from ESPN Fantasy League", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "For a private league, pull your team's roster from ESPN. You'll need your league ID " +
+            "and the espn_s2 and SWID values from your browser's cookies while logged into ESPN " +
+            "Fantasy — these act like a password, so only enter them here.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    OutlinedTextField(
+        value = state.leagueId,
+        onValueChange = viewModel::updateLeagueId,
+        label = { Text("League ID") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth()
+    )
+    OutlinedTextField(
+        value = state.season,
+        onValueChange = viewModel::updateSeason,
+        label = { Text("Season (e.g. 2025)") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth()
+    )
+    OutlinedTextField(
+        value = state.espnS2,
+        onValueChange = viewModel::updateEspnS2,
+        label = { Text("espn_s2 cookie value") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth()
+    )
+    OutlinedTextField(
+        value = state.swid,
+        onValueChange = viewModel::updateSwid,
+        label = { Text("SWID cookie value") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth()
+    )
+    Button(onClick = viewModel::fetchTeams, enabled = !state.isLoading) {
+        Text("Find My Teams")
+    }
+    if (state.isLoading) {
+        CircularProgressIndicator(modifier = Modifier.padding(top = 8.dp))
+    }
+    state.error?.let { message ->
+        Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+    }
+    if (state.teams.isNotEmpty()) {
+        Text("Which team is yours?", style = MaterialTheme.typography.titleSmall)
+        state.teams.forEach { team ->
+            EspnTeamRow(team = team, onClick = { viewModel.importTeam(team) })
+        }
+    }
+
+    if (state.importedTeamName != null) {
+        AlertDialog(
+            onDismissRequest = viewModel::consumeImportedTeamName,
+            title = { Text("Team imported") },
+            text = { Text("\"${state.importedTeamName}\" was added as a new team with its ESPN roster.") },
+            confirmButton = {
+                TextButton(onClick = viewModel::consumeImportedTeamName) { Text("OK") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun EspnTeamRow(team: EspnLeagueTeam, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Text(
+            team.name,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.padding(16.dp)
+        )
+    }
+}
+
+@Composable
+private fun LineupStepperRow(label: String, count: Int, onChange: (Int) -> Unit, max: Int = 4) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyLarge)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { onChange((count - 1).coerceIn(0, max)) }, enabled = count > 0) {
+                Icon(Icons.Filled.Remove, contentDescription = "Decrease $label")
+            }
+            Text(
+                count.toString(),
+                style = MaterialTheme.typography.titleMedium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.width(32.dp)
+            )
+            IconButton(onClick = { onChange((count + 1).coerceIn(0, max)) }, enabled = count < max) {
+                Icon(Icons.Filled.Add, contentDescription = "Increase $label")
+            }
+        }
     }
 }

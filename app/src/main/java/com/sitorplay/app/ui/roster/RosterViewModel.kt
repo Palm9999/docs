@@ -6,6 +6,7 @@ import com.sitorplay.app.data.repository.PlayerRepository
 import com.sitorplay.app.data.repository.TeamRepository
 import com.sitorplay.app.data.settings.AppSettingsRepository
 import com.sitorplay.app.data.sync.NflDataRepository
+import com.sitorplay.app.domain.model.Player
 import com.sitorplay.app.domain.model.Recommendation
 import com.sitorplay.app.domain.usecase.GetSitStartRecommendationsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -45,10 +46,16 @@ class RosterViewModel @Inject constructor(
         .flatMapLatest { teamId ->
             val teamName = teamRepository.observeTeams()
                 .map { teams -> teams.find { it.id == teamId }?.name.orEmpty() }
-            val recommendations = playerRepository.observeRoster(teamId)
-                .map { roster -> getSitStartRecommendations(roster) }
-            combine(teamName, recommendations) { name, recs ->
-                RosterUiState(teamName = name, recommendations = recs, isLoading = false)
+            combine(
+                teamName,
+                playerRepository.observeRoster(teamId),
+                appSettingsRepository.lineupSettings
+            ) { name, roster, lineupSettings ->
+                RosterUiState(
+                    teamName = name,
+                    recommendations = getSitStartRecommendations(roster, lineupSettings),
+                    isLoading = false
+                )
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RosterUiState())
@@ -59,10 +66,26 @@ class RosterViewModel @Inject constructor(
     private val _syncMessage = MutableStateFlow<String?>(null)
     val syncMessage: StateFlow<String?> = _syncMessage.asStateFlow()
 
+    private val _lastRemovedPlayer = MutableStateFlow<Player?>(null)
+    val lastRemovedPlayer: StateFlow<Player?> = _lastRemovedPlayer.asStateFlow()
+
     fun removePlayer(recommendation: Recommendation) {
         viewModelScope.launch {
             playerRepository.removePlayer(recommendation.player)
+            _lastRemovedPlayer.value = recommendation.player
         }
+    }
+
+    fun undoRemovePlayer() {
+        val player = _lastRemovedPlayer.value ?: return
+        _lastRemovedPlayer.value = null
+        viewModelScope.launch {
+            playerRepository.addPlayer(player.copy(id = 0))
+        }
+    }
+
+    fun consumeRemovedPlayerState() {
+        _lastRemovedPlayer.value = null
     }
 
     fun syncLiveData() {

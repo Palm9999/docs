@@ -5,6 +5,8 @@ import com.sitorplay.app.data.repository.PlayerRepository
 import com.sitorplay.app.data.repository.TeamRepository
 import com.sitorplay.app.data.settings.AppSettingsRepository
 import com.sitorplay.app.data.sync.NflDataRepository
+import com.sitorplay.app.notification.LineupReminderScheduler
+import com.sitorplay.app.notification.ensureLineupReminderChannel
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +26,12 @@ class SitOrPlayApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        ensureLineupReminderChannel(this)
+        if (appSettingsRepository.lockRemindersEnabled.value) {
+            // Re-arm on every process start; WorkManager itself already survives reboots,
+            // but this also picks up if the unique work was somehow lost.
+            LineupReminderScheduler.schedule(this)
+        }
         applicationScope.launch {
             val teamId = teamRepository.ensureDefaultTeam()
             appSettingsRepository.ensureSelectedTeam(teamId)

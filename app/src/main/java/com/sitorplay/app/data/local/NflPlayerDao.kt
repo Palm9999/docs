@@ -25,6 +25,9 @@ interface NflPlayerDao {
     @Query("SELECT * FROM nfl_players WHERE externalId = :externalId")
     suspend fun getById(externalId: String): NflPlayerEntity?
 
+    @Query("SELECT * FROM nfl_players WHERE position = 'DEF' AND nflTeam = :team LIMIT 1")
+    suspend fun findDefenseByTeam(team: String): NflPlayerEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(players: List<NflPlayerEntity>)
 

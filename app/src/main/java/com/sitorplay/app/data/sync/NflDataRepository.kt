@@ -10,6 +10,7 @@ import com.sitorplay.app.data.remote.SleeperApi
 import com.sitorplay.app.data.remote.dto.SleeperProjectionDto
 import com.sitorplay.app.data.settings.AppSettingsRepository
 import com.sitorplay.app.data.settings.ScoringFormat
+import com.sitorplay.app.domain.model.BYE_WEEK_OPPONENT
 import com.sitorplay.app.domain.model.InjuryStatus
 import com.sitorplay.app.domain.model.NflPlayer
 import com.sitorplay.app.domain.model.Player
@@ -76,10 +77,9 @@ class NflDataRepository @Inject constructor(
         val week = currentWeek()
         val projection = week.projections[externalId]
         val cachedPlayer = nflPlayerDao.getById(externalId)
-        val team = cachedPlayer?.nflTeam
         return WeeklyContext(
             projectedPoints = projection.pointsFor(appSettingsRepository.scoringFormat.value),
-            opponent = team?.let { week.opponentByTeam[it] },
+            opponent = resolveOpponent(cachedPlayer?.nflTeam, week),
             injuryStatus = cachedPlayer?.injuryStatus ?: InjuryStatus.HEALTHY
         )
     }
@@ -95,11 +95,17 @@ class NflDataRepository @Inject constructor(
             val projection = week.projections[externalId]
             player.copy(
                 nflTeam = cachedPlayer.nflTeam,
-                opponent = week.opponentByTeam[cachedPlayer.nflTeam] ?: player.opponent,
+                opponent = resolveOpponent(cachedPlayer.nflTeam, week) ?: player.opponent,
                 projectedPoints = if (projection != null) projection.pointsFor(format) else player.projectedPoints,
                 injuryStatus = cachedPlayer.injuryStatus
             )
         }
+    }
+
+    /** null for an unresolvable team (e.g. a free agent); [BYE_WEEK_OPPONENT] when the team has no game this week. */
+    private fun resolveOpponent(team: String?, week: CachedWeek): String? {
+        if (team == null || team == "FA") return null
+        return week.opponentByTeam[team] ?: BYE_WEEK_OPPONENT
     }
 
     suspend fun getPlayerDetailExtras(externalId: String): PlayerDetailExtras {
@@ -141,7 +147,7 @@ class NflDataRepository @Inject constructor(
                     player = cached.toDomain(),
                     trendCount = trend.count,
                     projectedPoints = week.projections[trend.player_id].pointsFor(format),
-                    opponent = week.opponentByTeam[cached.nflTeam]
+                    opponent = resolveOpponent(cached.nflTeam, week)
                 )
             }
             .take(limit)

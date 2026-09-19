@@ -2,6 +2,7 @@ package com.sitorplay.app.ui.compare
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sitorplay.app.data.repository.FavoritesRepository
 import com.sitorplay.app.data.sync.NflDataRepository
 import com.sitorplay.app.domain.model.NflPlayer
 import com.sitorplay.app.domain.usecase.MatchupScoring
@@ -10,6 +11,7 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
@@ -39,6 +41,8 @@ data class CompareUiState(
     val searchQuery: String = "",
     val isSearching: Boolean = false,
     val searchResults: List<NflPlayer> = emptyList(),
+    val favoritePlayers: List<NflPlayer> = emptyList(),
+    val favoriteIds: Set<String> = emptySet(),
     val slotA: ComparisonPlayer? = null,
     val slotB: ComparisonPlayer? = null
 )
@@ -46,7 +50,8 @@ data class CompareUiState(
 @OptIn(FlowPreview::class)
 @HiltViewModel
 class CompareViewModel @Inject constructor(
-    private val nflDataRepository: NflDataRepository
+    private val nflDataRepository: NflDataRepository,
+    private val favoritesRepository: FavoritesRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CompareUiState())
@@ -59,6 +64,14 @@ class CompareViewModel @Inject constructor(
             .debounce(300)
             .onEach { query -> runSearch(query) }
             .launchIn(viewModelScope)
+
+        viewModelScope.launch {
+            favoritesRepository.observeFavoriteIds().collectLatest { ids ->
+                _uiState.update { it.copy(favoriteIds = ids) }
+                val players = runCatching { favoritesRepository.getFavoritePlayers() }.getOrDefault(emptyList())
+                _uiState.update { it.copy(favoritePlayers = players) }
+            }
+        }
     }
 
     fun setActiveSlot(slot: CompareSlot) {
@@ -67,6 +80,10 @@ class CompareViewModel @Inject constructor(
 
     fun onSearchQueryChange(query: String) {
         _uiState.update { it.copy(searchQuery = query, isSearching = query.isNotBlank()) }
+    }
+
+    fun toggleFavorite(externalId: String) {
+        viewModelScope.launch { favoritesRepository.toggleFavorite(externalId) }
     }
 
     private suspend fun runSearch(query: String) {

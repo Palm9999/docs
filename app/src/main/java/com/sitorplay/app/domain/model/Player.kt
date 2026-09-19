@@ -1,5 +1,8 @@
 package com.sitorplay.app.domain.model
 
+/** Sentinel [Player.opponent] value meaning this player's NFL team has no game this week. */
+const val BYE_WEEK_OPPONENT = "BYE"
+
 enum class Position {
     QB, RB, WR, TE, K, DEF
 }

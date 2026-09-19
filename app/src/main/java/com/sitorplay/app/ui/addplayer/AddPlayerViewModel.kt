@@ -3,6 +3,7 @@ package com.sitorplay.app.ui.addplayer
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sitorplay.app.data.repository.FavoritesRepository
 import com.sitorplay.app.data.repository.PlayerRepository
 import com.sitorplay.app.data.settings.AppSettingsRepository
 import com.sitorplay.app.data.sync.NflDataRepository
@@ -16,6 +17,7 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
@@ -50,7 +52,10 @@ data class AddPlayerUiState(
     val projectedPoints: Double = 0.0,
     val opponent: String? = null,
     val opponentDefenseRank: String = "16",
-    val manualForm: ManualPlayerFormState = ManualPlayerFormState()
+    val manualForm: ManualPlayerFormState = ManualPlayerFormState(),
+    val favoritePlayers: List<NflPlayer> = emptyList(),
+    val favoriteIds: Set<String> = emptySet(),
+    val positionFilter: Position? = null
 ) {
     val canSaveSelected: Boolean
         get() = selectedPlayer != null && opponentDefenseRank.toIntOrNull()?.let { it in 1..32 } == true
@@ -61,6 +66,7 @@ data class AddPlayerUiState(
 class AddPlayerViewModel @Inject constructor(
     private val playerRepository: PlayerRepository,
     private val nflDataRepository: NflDataRepository,
+    private val favoritesRepository: FavoritesRepository,
     private val appSettingsRepository: AppSettingsRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
@@ -76,12 +82,28 @@ class AddPlayerViewModel @Inject constructor(
             .onEach { query -> runSearch(query) }
             .launchIn(viewModelScope)
 
+        viewModelScope.launch {
+            favoritesRepository.observeFavoriteIds().collectLatest { ids ->
+                _uiState.value = _uiState.value.copy(favoriteIds = ids)
+                val players = runCatching { favoritesRepository.getFavoritePlayers() }.getOrDefault(emptyList())
+                _uiState.value = _uiState.value.copy(favoritePlayers = players)
+            }
+        }
+
         // Arrived here from a waiver-wire "quick add" tap: pre-select that player.
         savedStateHandle.get<String>("prefillExternalId")?.let { externalId ->
             viewModelScope.launch {
                 nflDataRepository.getCachedPlayer(externalId)?.let { selectPlayer(it) }
             }
         }
+    }
+
+    fun toggleFavorite(externalId: String) {
+        viewModelScope.launch { favoritesRepository.toggleFavorite(externalId) }
+    }
+
+    fun setPositionFilter(position: Position?) {
+        _uiState.value = _uiState.value.copy(positionFilter = position)
     }
 
     fun onSearchQueryChange(query: String) {

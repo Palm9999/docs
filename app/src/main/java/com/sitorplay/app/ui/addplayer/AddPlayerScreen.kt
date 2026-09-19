@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -17,6 +18,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -24,6 +27,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -90,8 +94,13 @@ fun AddPlayerScreen(
                         query = state.searchQuery,
                         isSearching = state.isSearching,
                         results = state.searchResults,
+                        favorites = state.favoritePlayers,
+                        favoriteIds = state.favoriteIds,
+                        positionFilter = state.positionFilter,
+                        onPositionFilterChange = viewModel::setPositionFilter,
                         onQueryChange = viewModel::onSearchQueryChange,
-                        onSelect = viewModel::selectPlayer
+                        onSelect = viewModel::selectPlayer,
+                        onToggleFavorite = viewModel::toggleFavorite
                     )
                     TextButton(onClick = viewModel::toggleManualMode) {
                         Text("Can't find your player? Add manually")
@@ -114,13 +123,19 @@ fun AddPlayerScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PlayerSearch(
     query: String,
     isSearching: Boolean,
     results: List<NflPlayer>,
+    favorites: List<NflPlayer>,
+    favoriteIds: Set<String>,
+    positionFilter: Position?,
+    onPositionFilterChange: (Position?) -> Unit,
     onQueryChange: (String) -> Unit,
-    onSelect: (NflPlayer) -> Unit
+    onSelect: (NflPlayer) -> Unit,
+    onToggleFavorite: (String) -> Unit
 ) {
     OutlinedTextField(
         value = query,
@@ -132,12 +147,34 @@ private fun PlayerSearch(
         modifier = Modifier.fillMaxWidth()
     )
 
-    if (query.isBlank()) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            FilterChip(
+                selected = positionFilter == null,
+                onClick = { onPositionFilterChange(null) },
+                label = { Text("All") }
+            )
+        }
+        items(Position.entries) { position ->
+            FilterChip(
+                selected = positionFilter == position,
+                onClick = { onPositionFilterChange(position) },
+                label = { Text(position.name) }
+            )
+        }
+    }
+
+    val listToShow = (if (query.isBlank()) favorites else results)
+        .filter { positionFilter == null || it.position == positionFilter }
+
+    if (query.isBlank() && favorites.isEmpty()) {
         Text(
-            "Live player data comes from Sleeper's public NFL directory.",
+            "Live player data comes from Sleeper's public NFL directory. Star a player to save it here.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    } else if (query.isBlank()) {
+        Text("Favorites", style = MaterialTheme.typography.titleMedium)
     } else if (results.isEmpty() && !isSearching) {
         Text(
             "No matches. Check your connection, or add this player manually below.",
@@ -147,18 +184,27 @@ private fun PlayerSearch(
     }
 
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(results, key = { it.externalId }) { player ->
+        items(listToShow, key = { it.externalId }) { player ->
             Card(modifier = Modifier.fillMaxWidth().clickable { onSelect(player) }) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(player.name, style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        "${player.position} · ${player.nflTeam}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(player.name, style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "${player.position} · ${player.nflTeam}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    IconButton(onClick = { onToggleFavorite(player.externalId) }) {
+                        if (player.externalId in favoriteIds) {
+                            Icon(Icons.Filled.Star, contentDescription = "Unfavorite ${player.name}")
+                        } else {
+                            Icon(Icons.Outlined.StarBorder, contentDescription = "Favorite ${player.name}")
+                        }
+                    }
                 }
             }
         }
