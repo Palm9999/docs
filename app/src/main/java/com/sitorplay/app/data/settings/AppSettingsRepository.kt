@@ -23,8 +23,7 @@ private const val KEY_LINEUP_DEF = "lineup_def"
 private const val KEY_LOCK_REMINDERS_ENABLED = "lock_reminders_enabled"
 private const val KEY_ESPN_LEAGUE_ID = "espn_league_id"
 private const val KEY_ESPN_SEASON = "espn_season"
-private const val KEY_ESPN_S2 = "espn_s2"
-private const val KEY_ESPN_SWID = "espn_swid"
+private const val KEY_ESPN_COOKIE_HEADER = "espn_cookie_header"
 
 /** Small preference-backed settings shared across the app. */
 @Singleton
@@ -81,13 +80,12 @@ class AppSettingsRepository @Inject constructor(
         _lockRemindersEnabled.value = enabled
     }
 
-    /** Remembered so a re-import doesn't require retyping the espn_s2/SWID cookie values. */
+    /** Remembered so a re-import doesn't require retyping the ESPN cookie header. */
     fun setEspnCredentials(credentials: EspnCredentials) {
         preferences.edit {
             putString(KEY_ESPN_LEAGUE_ID, credentials.leagueId)
             putString(KEY_ESPN_SEASON, credentials.season)
-            putString(KEY_ESPN_S2, credentials.espnS2)
-            putString(KEY_ESPN_SWID, credentials.swid)
+            putString(KEY_ESPN_COOKIE_HEADER, credentials.cookieHeader)
         }
         _espnCredentials.value = credentials
     }
@@ -95,9 +93,8 @@ class AppSettingsRepository @Inject constructor(
     private fun readEspnCredentials(): EspnCredentials? {
         val leagueId = preferences.getString(KEY_ESPN_LEAGUE_ID, null) ?: return null
         val season = preferences.getString(KEY_ESPN_SEASON, null) ?: return null
-        val espnS2 = preferences.getString(KEY_ESPN_S2, null) ?: return null
-        val swid = preferences.getString(KEY_ESPN_SWID, null) ?: return null
-        return EspnCredentials(leagueId, season, espnS2, swid)
+        val cookieHeader = preferences.getString(KEY_ESPN_COOKIE_HEADER, null) ?: return null
+        return EspnCredentials(leagueId, season, cookieHeader)
     }
 
     private fun readScoringFormat(): ScoringFormat {

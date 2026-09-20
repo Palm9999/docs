@@ -39,8 +39,8 @@ private val PRO_TEAM_ABBREVIATIONS = mapOf(
 )
 
 /**
- * Imports a roster from a *private* ESPN Fantasy league (requires the espn_s2/SWID cookies
- * from a logged-in browser session — ESPN has no public API for private leagues).
+ * Imports a roster from a *private* ESPN Fantasy league (requires the full Cookie header from
+ * a logged-in browser session — ESPN has no public API for private leagues).
  *
  * Players are matched against the existing Sleeper-backed [NflPlayerDao] cache by name so the
  * imported roster keeps live-syncing projections/opponents/injury status afterward, the same
@@ -83,7 +83,7 @@ class EspnImportRepository @Inject constructor(
     private suspend fun fetchLeague(credentials: EspnCredentials) = espnFantasyApi.getLeague(
         season = credentials.season.trim().toInt(),
         leagueId = credentials.leagueId.trim().toLong(),
-        cookie = "espn_s2=${credentials.espnS2.trim()}; SWID=${credentials.swid.trim()}"
+        cookie = credentials.cookieHeader.trim()
     )
 
     private suspend fun mapEntry(entry: EspnRosterEntryDto): Player {

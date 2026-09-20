@@ -229,9 +229,13 @@ fun SettingsScreen(
 private fun EspnImportSection(state: EspnImportUiState, viewModel: EspnImportViewModel) {
     Text("Import from ESPN Fantasy League", style = MaterialTheme.typography.titleMedium)
     Text(
-        "For a private league, pull your team's roster from ESPN. You'll need your league ID " +
-            "and the espn_s2 and SWID values from your browser's cookies while logged into ESPN " +
-            "Fantasy — these act like a password, so only enter them here.",
+        "For a private league, pull your team's roster from ESPN. This needs your league ID " +
+            "plus the full Cookie header from a logged-in request — just the espn_s2/SWID " +
+            "values isn't enough, since ESPN's site checks other session cookies too. On a " +
+            "computer: open fantasy.espn.com and log in, open DevTools (F12) → Network tab, " +
+            "reload the page, click any request to an \"apis/v3/games/ffl\" URL, and under " +
+            "Request Headers copy the entire value of \"Cookie\". This acts like a password, so " +
+            "only paste it here.",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
@@ -245,22 +249,15 @@ private fun EspnImportSection(state: EspnImportUiState, viewModel: EspnImportVie
     OutlinedTextField(
         value = state.season,
         onValueChange = viewModel::updateSeason,
-        label = { Text("Season (e.g. 2025)") },
+        label = { Text("Season (e.g. 2026)") },
         singleLine = true,
         modifier = Modifier.fillMaxWidth()
     )
     OutlinedTextField(
-        value = state.espnS2,
-        onValueChange = viewModel::updateEspnS2,
-        label = { Text("espn_s2 cookie value") },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth()
-    )
-    OutlinedTextField(
-        value = state.swid,
-        onValueChange = viewModel::updateSwid,
-        label = { Text("SWID cookie value") },
-        singleLine = true,
+        value = state.cookieHeader,
+        onValueChange = viewModel::updateCookieHeader,
+        label = { Text("Cookie header") },
+        minLines = 3,
         modifier = Modifier.fillMaxWidth()
     )
     Button(onClick = viewModel::fetchTeams, enabled = !state.isLoading) {
