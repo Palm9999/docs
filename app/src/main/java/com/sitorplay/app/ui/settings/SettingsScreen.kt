@@ -227,18 +227,26 @@ fun SettingsScreen(
 
 @Composable
 private fun EspnImportSection(state: EspnImportUiState, viewModel: EspnImportViewModel) {
+    var showLoginDialog by remember { mutableStateOf(false) }
+    var showManualCookieField by remember { mutableStateOf(false) }
+
     Text("Import from ESPN Fantasy League", style = MaterialTheme.typography.titleMedium)
     Text(
-        "For a private league, pull your team's roster from ESPN. This needs your league ID " +
-            "plus the full Cookie header from a logged-in request — just the espn_s2/SWID " +
-            "values isn't enough, since ESPN's site checks other session cookies too. On a " +
-            "computer: open fantasy.espn.com and log in, open DevTools (F12) → Network tab, " +
-            "reload the page, click any request to an \"apis/v3/games/ffl\" URL, and under " +
-            "Request Headers copy the entire value of \"Cookie\". This acts like a password, so " +
-            "only paste it here.",
+        "For a private league, pull your team's roster from ESPN. Log in below, then enter " +
+            "your league ID and season and tap \"Find My Teams.\"",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
+    Button(onClick = { showLoginDialog = true }) {
+        Text(if (state.cookieHeader.isBlank()) "Log in with ESPN" else "Log in with ESPN again")
+    }
+    if (state.cookieHeader.isNotBlank()) {
+        Text(
+            "Logged in ✓",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
     OutlinedTextField(
         value = state.leagueId,
         onValueChange = viewModel::updateLeagueId,
@@ -253,13 +261,18 @@ private fun EspnImportSection(state: EspnImportUiState, viewModel: EspnImportVie
         singleLine = true,
         modifier = Modifier.fillMaxWidth()
     )
-    OutlinedTextField(
-        value = state.cookieHeader,
-        onValueChange = viewModel::updateCookieHeader,
-        label = { Text("Cookie header") },
-        minLines = 3,
-        modifier = Modifier.fillMaxWidth()
-    )
+    TextButton(onClick = { showManualCookieField = !showManualCookieField }) {
+        Text(if (showManualCookieField) "Hide advanced option" else "Advanced: paste a cookie header manually")
+    }
+    if (showManualCookieField) {
+        OutlinedTextField(
+            value = state.cookieHeader,
+            onValueChange = viewModel::updateCookieHeader,
+            label = { Text("Cookie header") },
+            minLines = 3,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
     Button(onClick = viewModel::fetchTeams, enabled = !state.isLoading) {
         Text("Find My Teams")
     }
@@ -283,6 +296,16 @@ private fun EspnImportSection(state: EspnImportUiState, viewModel: EspnImportVie
             text = { Text("\"${state.importedTeamName}\" was added as a new team with its ESPN roster.") },
             confirmButton = {
                 TextButton(onClick = viewModel::consumeImportedTeamName) { Text("OK") }
+            }
+        )
+    }
+
+    if (showLoginDialog) {
+        EspnLoginDialog(
+            onDismiss = { showLoginDialog = false },
+            onLoggedIn = { cookies ->
+                viewModel.updateCookieHeader(cookies)
+                showLoginDialog = false
             }
         )
     }
