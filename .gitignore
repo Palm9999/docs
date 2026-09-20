@@ -11,3 +11,6 @@ captures/
 *.aab
 *.ap_
 *.dex
+
+# Kotlin compiler daemon logs
+.kotlin/
