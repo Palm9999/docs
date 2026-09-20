@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.SerializationException
 import javax.inject.Inject
 
 data class EspnImportUiState(
@@ -51,7 +52,7 @@ class EspnImportViewModel @Inject constructor(
 
     fun fetchTeams() {
         val credentials = currentCredentials() ?: run {
-            _uiState.update { it.copy(error = "Fill in all four fields first.") }
+            _uiState.update { it.copy(error = "Fill in all four fields (league ID and season must be numbers).") }
             return
         }
         viewModelScope.launch {
@@ -99,18 +100,32 @@ class EspnImportViewModel @Inject constructor(
         if (state.leagueId.isBlank() || state.season.isBlank() || state.espnS2.isBlank() || state.swid.isBlank()) {
             return null
         }
+        val leagueId = state.leagueId.trim()
+        val season = state.season.trim()
+        if (leagueId.toLongOrNull() == null || season.toIntOrNull() == null) {
+            return null
+        }
         return EspnCredentials(
-            leagueId = state.leagueId.trim(),
-            season = state.season.trim(),
+            leagueId = leagueId,
+            season = season,
             espnS2 = state.espnS2.trim(),
             swid = state.swid.trim()
         )
     }
 
-    private fun describeError(e: Throwable): String = when {
-        e.message?.contains("401") == true || e.message?.contains("403") == true ->
-            "ESPN rejected those credentials. Double-check the league ID, espn_s2, and SWID values."
-        e.message?.contains("404") == true -> "League not found for that ID/season."
-        else -> e.message ?: "Couldn't reach ESPN. Check your connection and try again."
+    private fun describeError(e: Throwable): String {
+        val message = e.message.orEmpty()
+        return when {
+            message.contains("401") || message.contains("403") ->
+                "ESPN rejected those credentials. Double-check the league ID, espn_s2, and SWID values."
+            message.contains("404") -> "League not found for that league ID/season."
+            e is SerializationException || message.contains("json", ignoreCase = true) ||
+                message.contains("html", ignoreCase = true) ->
+                "ESPN didn't return the league data we expected. This usually means the " +
+                    "espn_s2/SWID cookies are wrong or have expired, the season doesn't match " +
+                    "the league ID, or you're not a member of this league. Try re-copying fresh " +
+                    "cookie values and double-check the season year."
+            else -> message.ifBlank { "Couldn't reach ESPN. Check your connection and try again." }
+        }
     }
 }
