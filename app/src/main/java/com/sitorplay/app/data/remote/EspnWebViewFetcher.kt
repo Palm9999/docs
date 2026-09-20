@@ -6,6 +6,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeout
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -14,6 +15,7 @@ import kotlin.coroutines.resumeWithException
 
 private const val ESPN_FANTASY_HOME = "https://fantasy.espn.com/"
 private const val BRIDGE_NAME = "SitOrPlayBridge"
+private const val FETCH_TIMEOUT_MILLIS = 20_000L
 
 /**
  * Fetches a URL by running `fetch()` inside a real (invisible) WebView instead of a plain HTTP
@@ -27,12 +29,19 @@ class EspnWebViewFetcher @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     /** Must be called from the main thread — WebView requires it. viewModelScope defaults there. */
-    suspend fun fetchJson(url: String): String = suspendCancellableCoroutine { continuation ->
+    suspend fun fetchJson(url: String): String = withTimeout(FETCH_TIMEOUT_MILLIS) {
+        fetchJsonOnce(url)
+    }
+
+    private suspend fun fetchJsonOnce(url: String): String = suspendCancellableCoroutine { continuation ->
         val webView = WebView(context)
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
 
+        var finished = false
         fun finish(block: () -> Unit) {
+            if (finished) return
+            finished = true
             if (continuation.isActive) block()
             webView.stopLoading()
             webView.destroy()
@@ -50,15 +59,18 @@ class EspnWebViewFetcher @Inject constructor(
             BRIDGE_NAME
         )
 
+        // ESPN redirects fantasy.espn.com/ to a session/locale-specific URL after login, so
+        // waiting for an exact match here would hang forever — just run on whatever page loads.
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, loadedUrl: String) {
-                if (loadedUrl != ESPN_FANTASY_HOME) return
+                if (finished) return
                 view.evaluateJavascript(fetchScript(url), null)
             }
         }
         webView.loadUrl(ESPN_FANTASY_HOME)
 
         continuation.invokeOnCancellation {
+            finished = true
             webView.stopLoading()
             webView.destroy()
         }
