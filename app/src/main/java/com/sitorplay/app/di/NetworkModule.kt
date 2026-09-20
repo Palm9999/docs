@@ -12,9 +12,14 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.Retrofit
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 import javax.inject.Qualifier
 import javax.inject.Singleton
+
+private const val BROWSER_USER_AGENT =
+    "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Chrome/124.0.0.0 Mobile Safari/537.36"
 
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
@@ -65,10 +70,44 @@ object NetworkModule {
         .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
         .build()
 
+    /**
+     * ESPN's fantasy API is picky in ways a plain OkHttp client isn't by default: it wants a
+     * browser-like User-Agent/Accept, and — when the session cookies don't authenticate — it
+     * serves the fantasy site's HTML app shell (200 OK) instead of an error status, which would
+     * otherwise surface as an opaque JSON-parsing crash. Fail fast with a clear message instead.
+     */
     @Provides
     @Singleton
     @EspnFantasyRetrofit
-    fun provideEspnFantasyRetrofit(client: OkHttpClient, json: Json): Retrofit = Retrofit.Builder()
+    fun provideEspnFantasyOkHttpClient(client: OkHttpClient): OkHttpClient = client.newBuilder()
+        .addInterceptor { chain ->
+            val request = chain.request().newBuilder()
+                .header("User-Agent", BROWSER_USER_AGENT)
+                .header("Accept", "application/json")
+                .build()
+            val response = chain.proceed(request)
+            val contentType = response.header("Content-Type").orEmpty()
+            if (!contentType.contains("json", ignoreCase = true)) {
+                val requestedUrl = response.request.url
+                val status = response.code
+                response.close()
+                throw IOException(
+                    "ESPN returned a non-JSON response (HTTP $status, content-type " +
+                        "\"$contentType\") from $requestedUrl instead of league data. This " +
+                        "usually means the login session wasn't accepted."
+                )
+            }
+            response
+        }
+        .build()
+
+    @Provides
+    @Singleton
+    @EspnFantasyRetrofit
+    fun provideEspnFantasyRetrofit(
+        @EspnFantasyRetrofit client: OkHttpClient,
+        json: Json
+    ): Retrofit = Retrofit.Builder()
         .baseUrl(ESPN_FANTASY_BASE_URL)
         .client(client)
         .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))

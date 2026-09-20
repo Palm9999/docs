@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.SerializationException
+import java.io.IOException
 import javax.inject.Inject
 
 data class EspnImportUiState(
@@ -134,6 +135,7 @@ class EspnImportViewModel @Inject constructor(
             message.contains("401") || message.contains("403") ->
                 "ESPN rejected those credentials. Double-check the league ID, espn_s2, and SWID values."
             message.contains("404") -> "League not found for that league ID/season."
+            e is IOException && message.contains("non-JSON response") -> message
             e is SerializationException || message.contains("json", ignoreCase = true) ||
                 message.contains("html", ignoreCase = true) ->
                 "ESPN didn't return the league data we expected. This usually means the " +
