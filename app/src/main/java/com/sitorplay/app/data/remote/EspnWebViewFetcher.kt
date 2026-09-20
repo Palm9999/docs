@@ -17,72 +17,73 @@ private const val BRIDGE_NAME = "SitOrPlayBridge"
 private const val FETCH_TIMEOUT_MILLIS = 20_000L
 
 /**
- * Fetches a URL by running `fetch()` inside a real (invisible) WebView instead of a plain HTTP
- * client. ESPN's fantasy site sits behind bot-mitigation that a bare OkHttp/Retrofit request
- * can't pass no matter which cookies it carries — a real WebView runs real JavaScript and shares
- * Android's persistent [android.webkit.CookieManager] session from [EspnLoginDialog], so a
- * `fetch()` issued from inside the page behaves exactly like the site's own requests.
+ * Fetches an API URL by running `fetch()` inside a real (invisible) WebView instead of a plain
+ * HTTP client, sharing Android's persistent [android.webkit.CookieManager] session set up by
+ * [EspnLoginDialog].
  *
- * The WebView navigates to [url] itself first (rendering ESPN's app shell, which we ignore) so
- * the follow-up `fetch()` call to that same URL is guaranteed same-origin — issuing it from an
- * unrelated page (e.g. the site's homepage, which may itself land on a different subdomain)
- * makes it cross-origin and browsers block reading the response, surfacing as "Failed to fetch"
- * with no other detail.
+ * Navigating straight to ESPN's `apis/v3/games/ffl/...` URL as a top-level page load always
+ * bounces to a generic fantasy hub page, for any client — that appears to just be how ESPN's
+ * routing treats that path when it's the page itself being loaded, regardless of session
+ * validity. The real site never navigates there directly either: its own JavaScript, running on
+ * a normal page like a league or team page, calls that same URL via `fetch()`. So this loads a
+ * real page ([pageUrl]) first, then issues the `fetch()` to [apiUrl] from within it — matching
+ * exactly what the site's own code does, and same-origin since both are under fantasy.espn.com.
  */
 @Singleton
 class EspnWebViewFetcher @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     /** Must be called from the main thread — WebView requires it. viewModelScope defaults there. */
-    suspend fun fetchJson(url: String): String = withTimeout(FETCH_TIMEOUT_MILLIS) {
-        fetchJsonOnce(url)
+    suspend fun fetchJson(pageUrl: String, apiUrl: String): String = withTimeout(FETCH_TIMEOUT_MILLIS) {
+        fetchJsonOnce(pageUrl, apiUrl)
     }
 
-    private suspend fun fetchJsonOnce(url: String): String = suspendCancellableCoroutine { continuation ->
-        val webView = WebView(context)
-        webView.settings.javaScriptEnabled = true
-        webView.settings.domStorageEnabled = true
+    private suspend fun fetchJsonOnce(pageUrl: String, apiUrl: String): String =
+        suspendCancellableCoroutine { continuation ->
+            val webView = WebView(context)
+            webView.settings.javaScriptEnabled = true
+            webView.settings.domStorageEnabled = true
 
-        var finished = false
-        fun finish(block: () -> Unit) {
-            if (finished) return
-            finished = true
-            if (continuation.isActive) block()
-            webView.stopLoading()
-            webView.destroy()
-        }
-
-        webView.addJavascriptInterface(
-            object {
-                @JavascriptInterface
-                fun onResult(json: String) = finish { continuation.resume(json) }
-
-                @JavascriptInterface
-                fun onError(message: String) =
-                    finish { continuation.resumeWithException(IOException("ESPN fetch failed: $message")) }
-            },
-            BRIDGE_NAME
-        )
-
-        webView.webViewClient = object : WebViewClient() {
-            override fun onPageFinished(view: WebView, loadedUrl: String) {
+            var finished = false
+            fun finish(block: () -> Unit) {
                 if (finished) return
-                view.evaluateJavascript(fetchScript(url), null)
+                finished = true
+                if (continuation.isActive) block()
+                webView.stopLoading()
+                webView.destroy()
+            }
+
+            webView.addJavascriptInterface(
+                object {
+                    @JavascriptInterface
+                    fun onResult(json: String) = finish { continuation.resume(json) }
+
+                    @JavascriptInterface
+                    fun onError(message: String) =
+                        finish { continuation.resumeWithException(IOException("ESPN fetch failed: $message")) }
+                },
+                BRIDGE_NAME
+            )
+
+            webView.webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView, loadedUrl: String) {
+                    if (finished) return
+                    view.evaluateJavascript(fetchScript(apiUrl), null)
+                }
+            }
+            webView.loadUrl(pageUrl)
+
+            continuation.invokeOnCancellation {
+                finished = true
+                webView.stopLoading()
+                webView.destroy()
             }
         }
-        webView.loadUrl(url)
 
-        continuation.invokeOnCancellation {
-            finished = true
-            webView.stopLoading()
-            webView.destroy()
-        }
-    }
-
-    private fun fetchScript(url: String): String = """
+    private fun fetchScript(apiUrl: String): String = """
         (function() {
             try {
-                fetch(${jsStringLiteral(url)}, { credentials: 'include', headers: { 'Accept': 'application/json' } })
+                fetch(${jsStringLiteral(apiUrl)}, { credentials: 'include', headers: { 'Accept': 'application/json' } })
                     .then(function(r) {
                         if (!r.ok) { throw new Error('HTTP ' + r.status); }
                         return r.text();

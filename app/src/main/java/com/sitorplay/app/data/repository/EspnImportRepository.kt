@@ -88,9 +88,10 @@ class EspnImportRepository @Inject constructor(
     private suspend fun fetchLeague(credentials: EspnCredentials): EspnLeagueDto {
         val season = credentials.season.trim()
         val leagueId = credentials.leagueId.trim()
-        val url = "https://fantasy.espn.com/apis/v3/games/ffl/seasons/$season/segments/0/" +
+        val pageUrl = "https://fantasy.espn.com/football/league?leagueId=$leagueId&seasonId=$season"
+        val apiUrl = "https://fantasy.espn.com/apis/v3/games/ffl/seasons/$season/segments/0/" +
             "leagues/$leagueId?view=mRoster&view=mTeam"
-        val body = espnWebViewFetcher.fetchJson(url)
+        val body = espnWebViewFetcher.fetchJson(pageUrl, apiUrl)
         return json.decodeFromString(EspnLeagueDto.serializer(), body)
     }
 
