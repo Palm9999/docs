@@ -108,9 +108,24 @@ class EspnImportViewModel @Inject constructor(
         return EspnCredentials(
             leagueId = leagueId,
             season = season,
-            espnS2 = state.espnS2.trim(),
-            swid = state.swid.trim()
+            espnS2 = sanitizeCookieValue(state.espnS2, "espn_s2"),
+            swid = sanitizeCookieValue(state.swid, "swid")
         )
+    }
+
+    /**
+     * Dev tools often display cookies as "name=value" pairs, and it's an easy copy-paste
+     * mistake to grab the whole pair instead of just the value. Strip a leading "name=" (and
+     * surrounding quotes/whitespace/trailing semicolon) so that mistake doesn't silently break
+     * the Cookie header we send to ESPN.
+     */
+    private fun sanitizeCookieValue(raw: String, cookieName: String): String {
+        var value = raw.trim().trim(';').trim()
+        val prefix = "$cookieName="
+        if (value.startsWith(prefix, ignoreCase = true)) {
+            value = value.substring(prefix.length)
+        }
+        return value.trim().removeSurrounding("\"")
     }
 
     private fun describeError(e: Throwable): String {
