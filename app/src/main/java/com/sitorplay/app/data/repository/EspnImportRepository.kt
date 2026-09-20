@@ -2,8 +2,9 @@ package com.sitorplay.app.data.repository
 
 import com.sitorplay.app.data.local.NflPlayerDao
 import com.sitorplay.app.data.local.toDomain
-import com.sitorplay.app.data.remote.EspnFantasyApi
+import com.sitorplay.app.data.remote.EspnWebViewFetcher
 import com.sitorplay.app.data.remote.dto.EspnFantasyPlayerDto
+import com.sitorplay.app.data.remote.dto.EspnLeagueDto
 import com.sitorplay.app.data.remote.dto.EspnRosterEntryDto
 import com.sitorplay.app.data.sync.NflDataRepository
 import com.sitorplay.app.domain.model.EspnCredentials
@@ -13,6 +14,7 @@ import com.sitorplay.app.domain.model.NflPlayer
 import com.sitorplay.app.domain.model.Player
 import com.sitorplay.app.domain.model.Position
 import com.sitorplay.app.domain.model.RosterSlot
+import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -39,8 +41,10 @@ private val PRO_TEAM_ABBREVIATIONS = mapOf(
 )
 
 /**
- * Imports a roster from a *private* ESPN Fantasy league (requires the full Cookie header from
- * a logged-in browser session — ESPN has no public API for private leagues).
+ * Imports a roster from a *private* ESPN Fantasy league (requires being logged in via
+ * [com.sitorplay.app.ui.settings.EspnLoginDialog] — ESPN has no public API for private leagues,
+ * and its bot-mitigation rejects a plain HTTP client's request even with valid cookies attached,
+ * so the fetch itself runs inside a real WebView via [EspnWebViewFetcher]).
  *
  * Players are matched against the existing Sleeper-backed [NflPlayerDao] cache by name so the
  * imported roster keeps live-syncing projections/opponents/injury status afterward, the same
@@ -49,7 +53,8 @@ private val PRO_TEAM_ABBREVIATIONS = mapOf(
  */
 @Singleton
 class EspnImportRepository @Inject constructor(
-    private val espnFantasyApi: EspnFantasyApi,
+    private val espnWebViewFetcher: EspnWebViewFetcher,
+    private val json: Json,
     private val nflPlayerDao: NflPlayerDao,
     private val nflDataRepository: NflDataRepository,
     private val teamRepository: TeamRepository,
@@ -80,11 +85,14 @@ class EspnImportRepository @Inject constructor(
         return localTeamId
     }
 
-    private suspend fun fetchLeague(credentials: EspnCredentials) = espnFantasyApi.getLeague(
-        season = credentials.season.trim().toInt(),
-        leagueId = credentials.leagueId.trim().toLong(),
-        cookie = credentials.cookieHeader.trim()
-    )
+    private suspend fun fetchLeague(credentials: EspnCredentials): EspnLeagueDto {
+        val season = credentials.season.trim()
+        val leagueId = credentials.leagueId.trim()
+        val url = "https://fantasy.espn.com/apis/v3/games/ffl/seasons/$season/segments/0/" +
+            "leagues/$leagueId?view=mRoster&view=mTeam"
+        val body = espnWebViewFetcher.fetchJson(url)
+        return json.decodeFromString(EspnLeagueDto.serializer(), body)
+    }
 
     private suspend fun mapEntry(entry: EspnRosterEntryDto): Player {
         val dto = entry.playerPoolEntry.player

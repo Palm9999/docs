@@ -228,7 +228,6 @@ fun SettingsScreen(
 @Composable
 private fun EspnImportSection(state: EspnImportUiState, viewModel: EspnImportViewModel) {
     var showLoginDialog by remember { mutableStateOf(false) }
-    var showManualCookieField by remember { mutableStateOf(false) }
 
     Text("Import from ESPN Fantasy League", style = MaterialTheme.typography.titleMedium)
     Text(
@@ -238,9 +237,9 @@ private fun EspnImportSection(state: EspnImportUiState, viewModel: EspnImportVie
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
     Button(onClick = { showLoginDialog = true }) {
-        Text(if (state.cookieHeader.isBlank()) "Log in with ESPN" else "Log in with ESPN again")
+        Text(if (state.isLoggedIn) "Log in with ESPN again" else "Log in with ESPN")
     }
-    if (state.cookieHeader.isNotBlank()) {
+    if (state.isLoggedIn) {
         Text(
             "Logged in ✓",
             style = MaterialTheme.typography.bodySmall,
@@ -261,18 +260,6 @@ private fun EspnImportSection(state: EspnImportUiState, viewModel: EspnImportVie
         singleLine = true,
         modifier = Modifier.fillMaxWidth()
     )
-    TextButton(onClick = { showManualCookieField = !showManualCookieField }) {
-        Text(if (showManualCookieField) "Hide advanced option" else "Advanced: paste a cookie header manually")
-    }
-    if (showManualCookieField) {
-        OutlinedTextField(
-            value = state.cookieHeader,
-            onValueChange = viewModel::updateCookieHeader,
-            label = { Text("Cookie header") },
-            minLines = 3,
-            modifier = Modifier.fillMaxWidth()
-        )
-    }
     Button(onClick = viewModel::fetchTeams, enabled = !state.isLoading) {
         Text("Find My Teams")
     }
@@ -303,8 +290,8 @@ private fun EspnImportSection(state: EspnImportUiState, viewModel: EspnImportVie
     if (showLoginDialog) {
         EspnLoginDialog(
             onDismiss = { showLoginDialog = false },
-            onLoggedIn = { cookies ->
-                viewModel.updateCookieHeader(cookies)
+            onLoggedIn = {
+                viewModel.onLoggedIn()
                 showLoginDialog = false
             }
         )

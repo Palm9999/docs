@@ -30,13 +30,13 @@ private const val ESPN_FANTASY_HOME = "https://fantasy.espn.com/"
 /**
  * A full-screen embedded browser for logging into ESPN. A real WebView runs a real JS engine,
  * so it passes whatever bot-mitigation checks a bare HTTP client can't — the same reason a
- * regular browser tab works. Once the user has logged in, we read back every cookie the site
- * set for this domain (not just espn_s2/SWID) via [CookieManager], which is exactly the full
- * Cookie header a real request would send.
+ * regular browser tab works. The resulting session is stored in Android's own, already-persistent
+ * [CookieManager] (shared by every WebView in the app), so [EspnWebViewFetcher] can reuse it
+ * later without this dialog needing to hand back anything itself.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EspnLoginDialog(onDismiss: () -> Unit, onLoggedIn: (String) -> Unit) {
+fun EspnLoginDialog(onDismiss: () -> Unit, onLoggedIn: () -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize()) {
@@ -49,10 +49,8 @@ fun EspnLoginDialog(onDismiss: () -> Unit, onLoggedIn: (String) -> Unit) {
                     },
                     actions = {
                         TextButton(onClick = {
-                            val cookies = CookieManager.getInstance().getCookie(ESPN_FANTASY_HOME)
-                            if (!cookies.isNullOrBlank()) {
-                                onLoggedIn(cookies)
-                            }
+                            CookieManager.getInstance().flush()
+                            onLoggedIn()
                         }) {
                             Text("Done")
                         }

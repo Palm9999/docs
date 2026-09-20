@@ -19,7 +19,7 @@ import javax.inject.Inject
 data class EspnImportUiState(
     val leagueId: String = "",
     val season: String = "",
-    val cookieHeader: String = "",
+    val isLoggedIn: Boolean = false,
     val isLoading: Boolean = false,
     val error: String? = null,
     val teams: List<EspnLeagueTeam> = emptyList(),
@@ -37,20 +37,19 @@ class EspnImportViewModel @Inject constructor(
 
     private fun initialState(): EspnImportUiState {
         val saved = appSettingsRepository.espnCredentials.value ?: return EspnImportUiState()
-        return EspnImportUiState(
-            leagueId = saved.leagueId,
-            season = saved.season,
-            cookieHeader = saved.cookieHeader
-        )
+        return EspnImportUiState(leagueId = saved.leagueId, season = saved.season)
     }
 
     fun updateLeagueId(value: String) = _uiState.update { it.copy(leagueId = value, error = null) }
     fun updateSeason(value: String) = _uiState.update { it.copy(season = value, error = null) }
-    fun updateCookieHeader(value: String) = _uiState.update { it.copy(cookieHeader = value, error = null) }
+
+    fun onLoggedIn() {
+        _uiState.update { it.copy(isLoggedIn = true, error = null) }
+    }
 
     fun fetchTeams() {
         val credentials = currentCredentials() ?: run {
-            _uiState.update { it.copy(error = "Fill in all three fields (league ID and season must be numbers).") }
+            _uiState.update { it.copy(error = "Fill in both fields (league ID and season must be numbers).") }
             return
         }
         viewModelScope.launch {
@@ -58,7 +57,7 @@ class EspnImportViewModel @Inject constructor(
             runCatching { espnImportRepository.fetchLeagueTeams(credentials) }
                 .onSuccess { teams ->
                     appSettingsRepository.setEspnCredentials(credentials)
-                    _uiState.update { it.copy(isLoading = false, teams = teams) }
+                    _uiState.update { it.copy(isLoading = false, teams = teams, isLoggedIn = true) }
                 }
                 .onFailure { e ->
                     _uiState.update { it.copy(isLoading = false, error = describeError(e)) }
@@ -95,7 +94,7 @@ class EspnImportViewModel @Inject constructor(
 
     private fun currentCredentials(): EspnCredentials? {
         val state = _uiState.value
-        if (state.leagueId.isBlank() || state.season.isBlank() || state.cookieHeader.isBlank()) {
+        if (state.leagueId.isBlank() || state.season.isBlank()) {
             return null
         }
         val leagueId = state.leagueId.trim()
@@ -103,38 +102,21 @@ class EspnImportViewModel @Inject constructor(
         if (leagueId.toLongOrNull() == null || season.toIntOrNull() == null) {
             return null
         }
-        return EspnCredentials(
-            leagueId = leagueId,
-            season = season,
-            cookieHeader = sanitizeCookieHeader(state.cookieHeader)
-        )
-    }
-
-    /**
-     * Dev tools sometimes show the header with its "Cookie: " field name still attached (e.g.
-     * from a raw request-headers view), or with stray leading/trailing whitespace from a mobile
-     * copy-paste. Strip that so it doesn't corrupt the header we actually send to ESPN.
-     */
-    private fun sanitizeCookieHeader(raw: String): String {
-        var value = raw.trim()
-        if (value.startsWith("cookie:", ignoreCase = true)) {
-            value = value.substring("cookie:".length)
-        }
-        return value.trim()
+        return EspnCredentials(leagueId = leagueId, season = season)
     }
 
     private fun describeError(e: Throwable): String {
         val message = e.message.orEmpty()
         return when {
             message.contains("401") || message.contains("403") ->
-                "ESPN rejected that cookie header. Try copying a fresh one."
+                "ESPN rejected that session. Try logging in again."
             message.contains("404") -> "League not found for that league ID/season."
             e is IOException && message.contains("non-JSON response") -> message
             e is SerializationException || message.contains("json", ignoreCase = true) ||
                 message.contains("html", ignoreCase = true) ->
-                "ESPN didn't return the league data we expected. This usually means the cookie " +
-                    "header is stale or incomplete, the season doesn't match the league ID, or " +
-                    "you're not a member of this league. Try re-copying a fresh cookie header."
+                "ESPN didn't return the league data we expected. This usually means the login " +
+                    "session is stale, the season doesn't match the league ID, or you're not a " +
+                    "member of this league. Try logging in again."
             else -> message.ifBlank { "Couldn't reach ESPN. Check your connection and try again." }
         }
     }
