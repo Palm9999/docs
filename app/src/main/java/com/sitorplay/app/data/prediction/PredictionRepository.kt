@@ -104,8 +104,12 @@ class PredictionRepository @Inject constructor(
 
         return try {
             val body = withContext(Dispatchers.IO) {
-                client.newCall(Request.Builder().url(url).build()).execute().use { response ->
-                    if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
+                client.newCall(buildRequest(url)).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        // Deliberately just the status: the URL may carry a
+                        // token and this string is shown on screen.
+                        throw IOException(describe(response.code))
+                    }
                     response.body?.bytes() ?: throw IOException("empty response")
                 }
             }
@@ -153,6 +157,32 @@ class PredictionRepository @Inject constructor(
         return week.project(loaded, sleeperId, injuryStatus, practice)
     }
 
+    /**
+     * A plain GET, plus a bearer token when one is configured.
+     *
+     * GitHub's contents endpoint returns JSON metadata with the file
+     * base64-encoded inside unless asked for the raw bytes, so that Accept
+     * header is set when the URL points there -- which is the practical way to
+     * read a bundle out of a private repository.
+     */
+    private fun buildRequest(url: String): Request {
+        val builder = Request.Builder().url(url)
+        val token = settings.modelBundleToken.value
+        if (token.isNotBlank()) {
+            builder.header("Authorization", "Bearer $token")
+        }
+        if (url.startsWith(GITHUB_API_PREFIX)) {
+            builder.header("Accept", "application/vnd.github.raw")
+        }
+        return builder.build()
+    }
+
+    private fun describe(code: Int): String = when (code) {
+        401, 403 -> "HTTP $code — the bundle needs an access token, or the one set is not valid"
+        404 -> "HTTP 404 — nothing at that URL, or the repository is private and no token is set"
+        else -> "HTTP $code"
+    }
+
     private fun readModelAsset(): PredictionModel =
         context.assets.open(MODEL_ASSET).use { stream ->
             ModelBundleParser.parse(GZIPInputStream(stream).bufferedReader().readText())
@@ -186,5 +216,6 @@ class PredictionRepository @Inject constructor(
     private companion object {
         const val MODEL_ASSET = "model.json.gz"
         const val CACHE_NAME = "week_features.json.gz"
+        const val GITHUB_API_PREFIX = "https://api.github.com/"
     }
 }

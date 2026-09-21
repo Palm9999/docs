@@ -45,6 +45,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -241,6 +242,9 @@ fun SettingsScreen(
 @Composable
 private fun PredictionModelSection(state: SettingsUiState, viewModel: SettingsViewModel) {
     var url by remember(state.modelBundleUrl) { mutableStateOf(state.modelBundleUrl) }
+    // Starts empty even when one is saved: the stored token is never read back
+    // into the UI, so it cannot be shoulder-surfed or screenshotted.
+    var token by remember { mutableStateOf("") }
     val status = state.modelStatus
 
     Text("Prediction model", style = MaterialTheme.typography.titleMedium)
@@ -273,10 +277,31 @@ private fun PredictionModelSection(state: SettingsUiState, viewModel: SettingsVi
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
     )
 
+    OutlinedTextField(
+        value = token,
+        onValueChange = { token = it },
+        label = { Text("Access token (only for a private source)") },
+        placeholder = {
+            Text(if (state.hasModelBundleToken) "Saved — type to replace" else "Optional")
+        },
+        singleLine = true,
+        visualTransformation = PasswordVisualTransformation(),
+        supportingText = {
+            Text(
+                "A read-only token scoped to the one repository is enough. " +
+                    "Leave blank if the bundle is publicly readable."
+            )
+        },
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+    )
+
     Row(verticalAlignment = Alignment.CenterVertically) {
         TextButton(
-            onClick = { viewModel.setModelBundleUrl(url) },
-            enabled = url != state.modelBundleUrl
+            onClick = {
+                viewModel.setModelBundleUrl(url)
+                if (token.isNotBlank()) viewModel.setModelBundleToken(token)
+            },
+            enabled = url != state.modelBundleUrl || token.isNotBlank()
         ) { Text("Save") }
         TextButton(
             onClick = viewModel::refreshModel,

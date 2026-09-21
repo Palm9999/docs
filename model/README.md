@@ -177,12 +177,26 @@ Both artifacts carry their feature list, and the app refuses to score a bundle
 whose list disagrees with the model's rather than lining the vectors up
 positionally and producing confident nonsense.
 
-`build_week.py` is the only part that needs to run on a schedule. Host the
-`week.json.gz` it writes anywhere the phone can reach over HTTPS and point
-**Settings → Prediction model** at it; the app polls every 12 hours. Re-run
-`export_model.py` only when retraining, and ship the new `model.json.gz` with
-the app — bundle and model must come from the same feature list, which is why
-both carry it and the app checks.
+`build_week.py` is the only part that needs to run on a schedule, and
+`.github/workflows/weekly-bundle.yml` does it — rebuilding the bundle, logging
+consensus projections and committing both. See the app README for pointing the
+app at the result. Re-run `export_model.py` only when retraining, and ship the
+new `model.json.gz` with the app.
+
+`check_artifacts.py` guards the pairing. Bundle and model must come from the
+same feature list or the app refuses to score, which is correct but a poor way
+to discover it, so CI runs the same check on every push — and re-verifies the
+parity fixtures from Python, giving a third implementation that has to agree.
+
+Two things the scheduled job has to get right, both of which cost a wrong answer
+rather than an error:
+
+- **Cached data must not go stale.** Completed seasons never change and are
+  cached; everything covering the current season is deleted before each run by
+  `ingest.purge_live()`, because nflverse rewrites those files as games are
+  played and a restored cache would quietly build last week's features.
+- **Out of season is not a failure.** `build_week.py` exits 78 when there is no
+  week to build, which the workflow treats as a skip.
 
 ## Layout
 

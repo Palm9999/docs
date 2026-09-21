@@ -24,6 +24,7 @@ private const val KEY_LOCK_REMINDERS_ENABLED = "lock_reminders_enabled"
 private const val KEY_ESPN_LEAGUE_ID = "espn_league_id"
 private const val KEY_ESPN_SEASON = "espn_season"
 private const val KEY_MODEL_BUNDLE_URL = "model_bundle_url"
+private const val KEY_MODEL_BUNDLE_TOKEN = "model_bundle_token"
 
 /** Small preference-backed settings shared across the app. */
 @Singleton
@@ -57,6 +58,19 @@ class AppSettingsRepository @Inject constructor(
         preferences.getString(KEY_MODEL_BUNDLE_URL, null).orEmpty()
     )
     val modelBundleUrl: StateFlow<String> = _modelBundleUrl.asStateFlow()
+
+    /**
+     * Optional credential for a bundle that is not publicly readable.
+     *
+     * Sent as a bearer token and nothing else -- it is never written to a log or
+     * an error message. A fine-grained token with read-only contents access to
+     * the single repository holding the bundle is all this needs; anything
+     * broader is more authority than the app can use.
+     */
+    private val _modelBundleToken = MutableStateFlow(
+        preferences.getString(KEY_MODEL_BUNDLE_TOKEN, null).orEmpty()
+    )
+    val modelBundleToken: StateFlow<String> = _modelBundleToken.asStateFlow()
 
     fun setScoringFormat(format: ScoringFormat) {
         preferences.edit { putString(KEY_SCORING_FORMAT, format.name) }
@@ -106,6 +120,12 @@ class AppSettingsRepository @Inject constructor(
         val trimmed = url.trim()
         preferences.edit { putString(KEY_MODEL_BUNDLE_URL, trimmed) }
         _modelBundleUrl.value = trimmed
+    }
+
+    fun setModelBundleToken(token: String) {
+        val trimmed = token.trim()
+        preferences.edit { putString(KEY_MODEL_BUNDLE_TOKEN, trimmed) }
+        _modelBundleToken.value = trimmed
     }
 
     private fun readEspnCredentials(): EspnCredentials? {

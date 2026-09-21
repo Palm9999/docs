@@ -34,6 +34,10 @@ SLEEPER_PLAYERS = "https://api.sleeper.app/v1/players/nfl"
 SLEEPER_STATE = "https://api.sleeper.app/v1/state/nfl"
 FORMAT_VERSION = 1
 
+# Distinct from 1 so a scheduled job can tell "no games this week" apart from a
+# real failure and skip the commit instead of going red.
+NOTHING_TO_BUILD = 78
+
 
 def _get(url: str):
     with urllib.request.urlopen(url, timeout=90) as response:
@@ -56,13 +60,25 @@ def main() -> None:
     season = args.season or int(state["season"])
     week = args.week or int(state["week"])
 
+    # A cron runs all year; February through August there is no week to build.
+    # That is a normal no-op, not a failure, so say so and exit clean.
+    if str(state.get("season_type")) not in ("regular", "post") and not args.season:
+        print(f"{season} is in the {state.get('season_type')} phase -- nothing to build",
+              file=sys.stderr)
+        sys.exit(NOTHING_TO_BUILD)
+
     print("loading history...", file=sys.stderr)
     history = build_player_weeks()
     by_gsis, teams, by_name = sleeper_directory()
 
-    rows = weekly.build_week(history, season, week, teams=teams)
+    try:
+        rows = weekly.build_week(history, season, week, teams=teams)
+    except ValueError as exc:
+        print(f"{exc} -- nothing to build", file=sys.stderr)
+        sys.exit(NOTHING_TO_BUILD)
     if rows.empty:
-        raise SystemExit(f"no rows built for {season} week {week}")
+        print(f"no rows built for {season} week {week} -- nothing to build", file=sys.stderr)
+        sys.exit(NOTHING_TO_BUILD)
 
     matrix = weekly.feature_matrix(rows)
 

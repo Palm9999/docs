@@ -32,6 +32,8 @@ data class SettingsUiState(
     val lineupSettings: LineupSettings = LineupSettings(),
     val lockRemindersEnabled: Boolean = false,
     val modelBundleUrl: String = "",
+    /** Present only so the field can show whether one is saved; never displayed. */
+    val hasModelBundleToken: Boolean = false,
     val modelStatus: ModelStatus = ModelStatus(),
     val isRefreshingModel: Boolean = false
 )
@@ -67,10 +69,16 @@ class SettingsViewModel @Inject constructor(
     val uiState: StateFlow<SettingsUiState> = combine(
         baseState,
         appSettingsRepository.modelBundleUrl,
+        appSettingsRepository.modelBundleToken,
         predictionRepository.status,
         isRefreshingModel
-    ) { base, url, status, refreshing ->
-        base.copy(modelBundleUrl = url, modelStatus = status, isRefreshingModel = refreshing)
+    ) { base, url, token, status, refreshing ->
+        base.copy(
+            modelBundleUrl = url,
+            hasModelBundleToken = token.isNotBlank(),
+            modelStatus = status,
+            isRefreshingModel = refreshing
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
     /**
@@ -84,6 +92,14 @@ class SettingsViewModel @Inject constructor(
             ModelRefreshWorker.cancel(context)
         } else {
             ModelRefreshWorker.schedule(context)
+            refreshModel()
+        }
+    }
+
+    /** Saves the token and retries, since a 401 is the usual reason to set one. */
+    fun setModelBundleToken(token: String) {
+        appSettingsRepository.setModelBundleToken(token)
+        if (appSettingsRepository.modelBundleUrl.value.isNotBlank()) {
             refreshModel()
         }
     }

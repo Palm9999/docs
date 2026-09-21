@@ -7,12 +7,14 @@ features.py, never in this module.
 from __future__ import annotations
 
 import sys
+import time
+import urllib.error
 import urllib.request
 
 import numpy as np
 import pandas as pd
 
-from .config import DATA, NFLVERSE, POSITIONS, SEASONS
+from .config import CURRENT_SEASON, DATA, NFLVERSE, POSITIONS, SEASONS
 
 # release -> filename template. 2021+ all use the modern stats_player_week files.
 FILES = {
@@ -26,14 +28,32 @@ STATIC = {
 }
 
 
-def _fetch(url: str, dest) -> bool:
+# Completed seasons never change, so their files are cached forever. Anything
+# covering the current season is rewritten by nflverse as games are played, and a
+# stale copy would silently produce last week's features -- so those expire.
+LIVE_FILE_MAX_AGE_HOURS = 6
+
+
+def _is_live(name: str) -> bool:
+    return str(CURRENT_SEASON) in name or name in STATIC
+
+
+def _fetch(url: str, dest, max_age_hours: float | None = None) -> bool:
     """Returns False for a release file that does not exist yet.
 
     The current season's files appear as the year progresses, so a missing one is
     normal in September and must not abort the whole download.
     """
     if dest.exists() and dest.stat().st_size > 1024:
-        return True
+        age_limit = max_age_hours if max_age_hours is not None else (
+            LIVE_FILE_MAX_AGE_HOURS if _is_live(dest.name) else None
+        )
+        if age_limit is None:
+            return True
+        age_hours = (time.time() - dest.stat().st_mtime) / 3600
+        if age_hours < age_limit:
+            return True
+        print(f"  refreshing {dest.name} ({age_hours:.1f}h old)", file=sys.stderr)
     print(f"  downloading {dest.name}", file=sys.stderr)
     try:
         urllib.request.urlretrieve(url, dest)
@@ -44,6 +64,25 @@ def _fetch(url: str, dest) -> bool:
             dest.unlink(missing_ok=True)
             return False
         raise
+
+
+def purge_live() -> list[str]:
+    """Delete every cached file that nflverse rewrites during the season.
+
+    A restored CI cache can carry last week's numbers with a fresh timestamp,
+    which would quietly build a bundle from stale usage. Deleting outright is a
+    stronger guarantee than trusting mtimes to survive a tar round-trip, and the
+    completed seasons -- which are the bulk of the download -- stay cached.
+    """
+    removed = []
+    if DATA.exists():
+        for path in DATA.iterdir():
+            if path.is_file() and _is_live(path.name):
+                path.unlink()
+                removed.append(path.name)
+    for name in sorted(removed):
+        print(f"  purged {name}", file=sys.stderr)
+    return removed
 
 
 def download() -> None:

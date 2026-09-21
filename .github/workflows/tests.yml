@@ -1,0 +1,61 @@
+# Runs the unit tests. Worth having because the model's Kotlin port is only
+# trustworthy if ModelParityTest keeps passing against whatever model.json.gz is
+# committed, and the Compose/Hilt/WorkManager code has no other coverage.
+name: Tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # JDK 17 to match app/build.gradle.kts, not the newest available: AGP
+      # pins the toolchain and a mismatch fails at configuration time.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests
+        run: ./gradlew test --stacktrace
+
+      # The reports say which assertion failed; the console output alone often
+      # does not for parameterised cases.
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: app/build/reports/tests/
+          retention-days: 14
+
+  pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: model/requirements.txt
+      - run: pip install -r model/requirements.txt
+
+      # No network fixtures here, so this checks that the pipeline imports and
+      # that the committed bundle still lines up with the committed model --
+      # the mismatch the app refuses to score, caught before it ships.
+      - name: Check the bundle matches the model
+        run: python3 model/check_artifacts.py
