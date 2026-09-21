@@ -1,0 +1,190 @@
+package com.sitorplay.app.data.prediction
+
+import android.content.Context
+import com.sitorplay.app.data.settings.AppSettingsRepository
+import com.sitorplay.app.domain.model.InjuryStatus
+import com.sitorplay.app.domain.model.Player
+import com.sitorplay.app.domain.model.PracticeParticipation
+import com.sitorplay.app.domain.prediction.ModelBundleParser
+import com.sitorplay.app.domain.prediction.PredictionModel
+import com.sitorplay.app.domain.prediction.Projection
+import com.sitorplay.app.domain.prediction.WeeklyBundle
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
+import java.io.IOException
+import java.util.zip.GZIPInputStream
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+
+/** What the app knows about its prediction model right now, for the settings screen. */
+data class ModelStatus(
+    val modelLoaded: Boolean = false,
+    val trainedThrough: String = "",
+    val scoring: String = "",
+    val bundleSeason: Int? = null,
+    val bundleWeek: Int? = null,
+    val bundlePlayers: Int = 0,
+    val bundleGenerated: String = "",
+    val lastError: String? = null
+) {
+    val isReady: Boolean get() = modelLoaded && bundlePlayers > 0
+}
+
+/**
+ * Owns the on-device model and the week of features it scores.
+ *
+ * The model itself ships in `assets/` and never changes without an app update.
+ * The feature bundle changes weekly and is downloaded, because rebuilding it on
+ * the phone would mean pulling a season of play-by-play. Both are optional: with
+ * no bundle the app falls back to the projection-and-multiplier heuristic it
+ * used before, so a failed download degrades the recommendations rather than
+ * breaking the screen.
+ */
+@Singleton
+class PredictionRepository @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val client: OkHttpClient,
+    private val settings: AppSettingsRepository
+) {
+
+    private val loadLock = Mutex()
+    private var model: PredictionModel? = null
+    private var bundle: WeeklyBundle? = null
+
+    private val _status = MutableStateFlow(ModelStatus())
+    val status: StateFlow<ModelStatus> = _status.asStateFlow()
+
+    private val cacheFile: File get() = File(context.filesDir, CACHE_NAME)
+
+    /**
+     * Loads the model and whatever bundle is on disk. Safe to call repeatedly;
+     * the work happens once.
+     */
+    suspend fun ensureLoaded() = loadLock.withLock {
+        if (model == null) {
+            model = runCatching { readModelAsset() }
+                .onFailure { failure -> recordError("Could not read the bundled model: ${failure.message}") }
+                .getOrNull()
+        }
+        val loaded = model
+        if (loaded != null && bundle == null && cacheFile.exists()) {
+            bundle = runCatching { WeeklyBundle.parse(readGzip(cacheFile), loaded) }
+                .onFailure { failure ->
+                    // A cached bundle from an older model is worse than none: it
+                    // would either fail the feature check or score nonsense.
+                    cacheFile.delete()
+                    recordError("Cached week was unusable and has been discarded: ${failure.message}")
+                }
+                .getOrNull()
+        }
+        publishStatus()
+    }
+
+    /**
+     * Downloads this week's features. Returns false and leaves the previous
+     * bundle in place if anything goes wrong.
+     */
+    suspend fun refreshWeeklyBundle(): Boolean {
+        ensureLoaded()
+        val loaded = model ?: return false
+        val url = settings.modelBundleUrl.value
+        if (url.isBlank()) {
+            recordError("No weekly bundle URL is configured")
+            return false
+        }
+
+        return try {
+            val body = withContext(Dispatchers.IO) {
+                client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                    if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
+                    response.body?.bytes() ?: throw IOException("empty response")
+                }
+            }
+            // Parse before writing, so a corrupt download never replaces a good cache.
+            val parsed = WeeklyBundle.parse(decode(body), loaded)
+            withContext(Dispatchers.IO) { cacheFile.writeBytes(body) }
+            loadLock.withLock {
+                bundle = parsed
+                publishStatus(clearError = true)
+            }
+            true
+        } catch (failure: Exception) {
+            recordError("Weekly update failed: ${failure.message}")
+            false
+        }
+    }
+
+    /**
+     * The model's projection for a rostered player, or null when the model has
+     * nothing to say -- no bundle, an unmodelled position, or a player it has
+     * never seen. Callers fall back to the plain projection in that case rather
+     * than being handed a number the model did not produce.
+     */
+    fun projectionFor(player: Player): Projection? {
+        val loaded = model ?: return null
+        val week = bundle ?: return null
+        val sleeperId = player.externalId ?: return null
+        return week.project(
+            model = loaded,
+            sleeperId = sleeperId,
+            injuryStatus = player.injuryStatus,
+            practice = player.practiceParticipation
+        )
+    }
+
+    /** Same, for a player not on the roster -- the compare screen's search results. */
+    fun projectionFor(
+        sleeperId: String?,
+        injuryStatus: InjuryStatus,
+        practice: PracticeParticipation?
+    ): Projection? {
+        val loaded = model ?: return null
+        val week = bundle ?: return null
+        if (sleeperId == null) return null
+        return week.project(loaded, sleeperId, injuryStatus, practice)
+    }
+
+    private fun readModelAsset(): PredictionModel =
+        context.assets.open(MODEL_ASSET).use { stream ->
+            ModelBundleParser.parse(GZIPInputStream(stream).bufferedReader().readText())
+        }
+
+    private fun readGzip(file: File): String =
+        GZIPInputStream(file.inputStream()).bufferedReader().use { it.readText() }
+
+    private fun decode(bytes: ByteArray): String =
+        GZIPInputStream(bytes.inputStream()).bufferedReader().use { it.readText() }
+
+    private fun recordError(message: String) {
+        _status.value = _status.value.copy(lastError = message)
+    }
+
+    private fun publishStatus(clearError: Boolean = false) {
+        val loaded = model
+        val week = bundle
+        _status.value = ModelStatus(
+            modelLoaded = loaded != null,
+            trainedThrough = loaded?.trainedThrough.orEmpty(),
+            scoring = loaded?.scoring.orEmpty(),
+            bundleSeason = week?.season,
+            bundleWeek = week?.week,
+            bundlePlayers = week?.size ?: 0,
+            bundleGenerated = week?.generated.orEmpty(),
+            lastError = if (clearError) null else _status.value.lastError
+        )
+    }
+
+    private companion object {
+        const val MODEL_ASSET = "model.json.gz"
+        const val CACHE_NAME = "week_features.json.gz"
+    }
+}

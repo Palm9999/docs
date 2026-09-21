@@ -177,6 +177,13 @@ Both artifacts carry their feature list, and the app refuses to score a bundle
 whose list disagrees with the model's rather than lining the vectors up
 positionally and producing confident nonsense.
 
+`build_week.py` is the only part that needs to run on a schedule. Host the
+`week.json.gz` it writes anywhere the phone can reach over HTTPS and point
+**Settings → Prediction model** at it; the app polls every 12 hours. Re-run
+`export_model.py` only when retraining, and ship the new `model.json.gz` with
+the app — bundle and model must come from the same feature list, which is why
+both carry it and the app checks.
+
 ## Layout
 
 ```

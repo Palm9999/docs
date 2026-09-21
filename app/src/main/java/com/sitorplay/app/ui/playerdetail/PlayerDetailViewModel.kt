@@ -7,6 +7,7 @@ import com.sitorplay.app.data.repository.PlayerRepository
 import com.sitorplay.app.data.settings.AppSettingsRepository
 import com.sitorplay.app.data.sync.NflDataRepository
 import com.sitorplay.app.domain.model.PlayerDetailExtras
+import com.sitorplay.app.data.prediction.PredictionRepository
 import com.sitorplay.app.domain.model.Recommendation
 import com.sitorplay.app.domain.usecase.GetSitStartRecommendationsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -32,6 +33,7 @@ class PlayerDetailViewModel @Inject constructor(
     private val appSettingsRepository: AppSettingsRepository,
     private val nflDataRepository: NflDataRepository,
     private val getSitStartRecommendations: GetSitStartRecommendationsUseCase,
+    private val predictionRepository: PredictionRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -44,9 +46,16 @@ class PlayerDetailViewModel @Inject constructor(
             } else {
                 combine(
                     playerRepository.observeRoster(player.teamId),
-                    appSettingsRepository.lineupSettings
-                ) { roster, lineupSettings ->
-                    getSitStartRecommendations(roster, lineupSettings).find { it.player.id == playerId }
+                    appSettingsRepository.lineupSettings,
+                    // Re-runs when a weekly bundle lands, so the detail screen
+                    // picks up the model without needing a roster edit.
+                    predictionRepository.status
+                ) { roster, lineupSettings, _ ->
+                    val projections = roster.mapNotNull { rostered ->
+                        predictionRepository.projectionFor(rostered)?.let { rostered.id to it }
+                    }.toMap()
+                    getSitStartRecommendations(roster, lineupSettings, projections)
+                        .find { it.player.id == playerId }
                 }
             }
         }

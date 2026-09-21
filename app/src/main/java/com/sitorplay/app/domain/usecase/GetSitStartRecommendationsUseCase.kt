@@ -9,13 +9,26 @@ import com.sitorplay.app.domain.model.Position
 import com.sitorplay.app.domain.model.PracticeParticipation
 import com.sitorplay.app.domain.prediction.PlayRates
 import com.sitorplay.app.domain.model.Recommendation
+import com.sitorplay.app.domain.prediction.Projection
 import javax.inject.Inject
 
 private val FLEX_ELIGIBLE = setOf(Position.RB, Position.WR, Position.TE)
 
 class GetSitStartRecommendationsUseCase @Inject constructor() {
 
-    operator fun invoke(roster: List<Player>, lineupSettings: LineupSettings = LineupSettings()): List<Recommendation> {
+    /**
+     * @param projections the model's output per player id, where it has any. A
+     * player with a projection is ranked on it directly rather than through the
+     * matchup and injury multipliers, because the model already accounts for both
+     * -- opponent strength is one of its features and the play probability is
+     * baked into expected points. Applying the multipliers on top would discount
+     * the same two things twice.
+     */
+    operator fun invoke(
+        roster: List<Player>,
+        lineupSettings: LineupSettings = LineupSettings(),
+        projections: Map<Long, Projection> = emptyMap()
+    ): List<Recommendation> {
         val recommendations = mutableMapOf<Long, Recommendation>()
 
         // Ruled-out and bye-week players are never a legitimate start, no matter how thin the roster is.
@@ -35,7 +48,7 @@ class GetSitStartRecommendationsUseCase @Inject constructor() {
             }
 
         val scored = roster.filter { it.injuryStatus != InjuryStatus.OUT && it.opponent != BYE_WEEK_OPPONENT }
-            .associateWith { adjustedProjection(it) }
+            .associateWith { player -> adjustedProjection(player, projections[player.id]) }
         val started = mutableSetOf<Long>()
 
         lineupSettings.starterSlots().forEach { (position, slots) ->
@@ -49,7 +62,8 @@ class GetSitStartRecommendationsUseCase @Inject constructor() {
                         player = player,
                         call = call,
                         adjustedProjection = score,
-                        reasons = reasonsFor(player, score, index, slots)
+                        reasons = reasonsFor(player, score, index, slots, projections[player.id]),
+                        projection = projections[player.id]
                     )
                 }
         }
@@ -60,13 +74,15 @@ class GetSitStartRecommendationsUseCase @Inject constructor() {
                 .sortedByDescending { it.second }
                 .forEachIndexed { index, (player, score) ->
                     val call = if (index < lineupSettings.flex) Call.START else Call.SIT
-                    val flexReasons = reasonsFor(player, score, index, lineupSettings.flex) +
-                        listOfNotNull(if (call == Call.START) "Best remaining FLEX option" else null)
+                    val flexReasons =
+                        reasonsFor(player, score, index, lineupSettings.flex, projections[player.id]) +
+                            listOfNotNull(if (call == Call.START) "Best remaining FLEX option" else null)
                     recommendations[player.id] = Recommendation(
                         player = player,
                         call = call,
                         adjustedProjection = score,
-                        reasons = flexReasons
+                        reasons = flexReasons,
+                        projection = projections[player.id]
                     )
                 }
         }
@@ -77,23 +93,36 @@ class GetSitStartRecommendationsUseCase @Inject constructor() {
                 player = player,
                 call = Call.SIT,
                 adjustedProjection = scored.getValue(player),
-                reasons = listOf("Your league doesn't use a ${player.position} slot")
+                reasons = listOf("Your league doesn't use a ${player.position} slot"),
+                projection = projections[player.id]
             )
         }
 
         return roster.map { recommendations.getValue(it.id) }
     }
 
-    private fun adjustedProjection(player: Player): Double = MatchupScoring.adjustedProjection(
-        projectedPoints = player.projectedPoints,
-        opponentDefenseRank = player.opponentDefenseRank,
-        injuryStatus = player.injuryStatus,
-        practiceParticipation = player.practiceParticipation
-    )
+    private fun adjustedProjection(player: Player, projection: Projection?): Double =
+        projection?.expectedPoints ?: MatchupScoring.adjustedProjection(
+            projectedPoints = player.projectedPoints,
+            opponentDefenseRank = player.opponentDefenseRank,
+            injuryStatus = player.injuryStatus,
+            practiceParticipation = player.practiceParticipation
+        )
 
-    private fun reasonsFor(player: Player, score: Double, rankIndex: Int, slots: Int): List<String> {
+    private fun reasonsFor(
+        player: Player,
+        score: Double,
+        rankIndex: Int,
+        slots: Int,
+        projection: Projection?
+    ): List<String> {
         val reasons = mutableListOf<String>()
-        reasons += "Projected ${"%.1f".format(player.projectedPoints)} pts vs ${player.opponent}"
+        reasons += if (projection != null) {
+            "Model projects ${"%.1f".format(projection.range.median)} pts vs ${player.opponent} " +
+                "(${"%.1f".format(projection.range.floor)}–${"%.1f".format(projection.range.ceiling)} range)"
+        } else {
+            "Projected ${"%.1f".format(player.projectedPoints)} pts vs ${player.opponent}"
+        }
         reasons += when {
             player.opponentDefenseRank <= 8 -> "Tough matchup (defense ranked #${player.opponentDefenseRank} vs ${player.position})"
             player.opponentDefenseRank <= 24 -> "Average matchup (defense ranked #${player.opponentDefenseRank} vs ${player.position})"

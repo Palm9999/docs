@@ -1,6 +1,8 @@
 package com.sitorplay.app
 
 import android.app.Application
+import com.sitorplay.app.data.prediction.ModelRefreshWorker
+import com.sitorplay.app.data.prediction.PredictionRepository
 import com.sitorplay.app.data.repository.PlayerRepository
 import com.sitorplay.app.data.repository.TeamRepository
 import com.sitorplay.app.data.settings.AppSettingsRepository
@@ -21,6 +23,7 @@ class SitOrPlayApp : Application() {
     @Inject lateinit var teamRepository: TeamRepository
     @Inject lateinit var appSettingsRepository: AppSettingsRepository
     @Inject lateinit var nflDataRepository: NflDataRepository
+    @Inject lateinit var predictionRepository: PredictionRepository
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -36,6 +39,15 @@ class SitOrPlayApp : Application() {
             val teamId = teamRepository.ensureDefaultTeam()
             appSettingsRepository.ensureSelectedTeam(teamId)
             playerRepository.seedIfEmpty(teamId)
+        }
+        applicationScope.launch {
+            // Parse the model once at startup so the first roster render is not
+            // waiting on ~35,000 tree nodes. Also picks up any cached week.
+            runCatching { predictionRepository.ensureLoaded() }
+            if (appSettingsRepository.modelBundleUrl.value.isNotBlank()) {
+                ModelRefreshWorker.schedule(this@SitOrPlayApp)
+                runCatching { predictionRepository.refreshWeeklyBundle() }
+            }
         }
         applicationScope.launch {
             // Best-effort warm-up so the first player search isn't stuck waiting

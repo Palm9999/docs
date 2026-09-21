@@ -2,6 +2,7 @@ package com.sitorplay.app.ui.roster
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sitorplay.app.data.prediction.PredictionRepository
 import com.sitorplay.app.data.repository.PlayerRepository
 import com.sitorplay.app.data.repository.TeamRepository
 import com.sitorplay.app.data.settings.AppSettingsRepository
@@ -27,7 +28,9 @@ import javax.inject.Inject
 data class RosterUiState(
     val teamName: String = "",
     val recommendations: List<Recommendation> = emptyList(),
-    val isLoading: Boolean = true
+    val isLoading: Boolean = true,
+    /** True when the ranking came from the model rather than the projection heuristic. */
+    val modelBacked: Boolean = false
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -37,6 +40,7 @@ class RosterViewModel @Inject constructor(
     private val teamRepository: TeamRepository,
     private val appSettingsRepository: AppSettingsRepository,
     private val nflDataRepository: NflDataRepository,
+    private val predictionRepository: PredictionRepository,
     private val getSitStartRecommendations: GetSitStartRecommendationsUseCase
 ) : ViewModel() {
 
@@ -49,12 +53,19 @@ class RosterViewModel @Inject constructor(
             combine(
                 teamName,
                 playerRepository.observeRoster(teamId),
-                appSettingsRepository.lineupSettings
-            ) { name, roster, lineupSettings ->
+                appSettingsRepository.lineupSettings,
+                // Included so the lineup re-ranks the moment a weekly bundle
+                // finishes downloading, rather than on the next roster edit.
+                predictionRepository.status
+            ) { name, roster, lineupSettings, _ ->
+                val projections = roster.mapNotNull { player ->
+                    predictionRepository.projectionFor(player)?.let { player.id to it }
+                }.toMap()
                 RosterUiState(
                     teamName = name,
-                    recommendations = getSitStartRecommendations(roster, lineupSettings),
-                    isLoading = false
+                    recommendations = getSitStartRecommendations(roster, lineupSettings, projections),
+                    isLoading = false,
+                    modelBacked = projections.isNotEmpty()
                 )
             }
         }

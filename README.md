@@ -47,14 +47,49 @@ evaluates the exported ensemble directly — the model is 299 KB gzipped in
 
 Each player gets a **floor / median / ceiling**, not a single number, because the
 real question is not "how many points" but "which of these two do I start" — and
-that depends on your matchup. Against a heavy favourite you want the better
-floor; as a heavy underdog you need the better ceiling. Expected points are
-`P(plays) x E[points | plays]`, keeping the two sources of uncertainty separate.
+that depends on your matchup. Expected points are `P(plays) x E[points | plays]`,
+keeping the two sources of uncertainty separate.
+
+### Start/sit by win probability
+
+The compare screen turns that range into the answer the projection cannot give.
+Set **points needed from this slot** to what your matchup actually demands, and
+each player is scored on `P(they clear it)` rather than on projected points.
+
+The two disagree often enough to matter. Two players with the same 12-point
+median but different spreads are genuinely different starts: needing 4 points,
+the steady one wins comfortably; needing 20, the boom-or-bust one is the only
+option that can get there at all. Drag the slider and the recommendation flips
+at the crossover. When the call contradicts raw projected points the screen says
+so explicitly, because that is exactly when the tool is worth having.
+
+Each player's range is fitted to two half-normals joined at the median — fantasy
+outcomes are right-skewed, so a single normal would understate ceilings and
+overstate floors, and this reproduces p15/p50/p85 exactly.
 
 Features are too heavy to compute on a phone — rolling usage, schedule-adjusted
 defence, vacated target share — so `model/build_week.py` publishes a small weekly
 bundle (64 KB for a full slate) that the app scores locally. Live injury news can
 override a feature and re-score instantly without waiting for a new bundle.
+
+### Setting it up
+
+The model ships in the APK and needs nothing. The weekly bundle does:
+
+1. Run `python3 model/build_week.py` once a week (see `model/README.md`).
+2. Upload the resulting `week.json.gz` anywhere the phone can reach it over
+   HTTPS — a release asset that the weekly run overwrites works well.
+3. Paste that URL into **Settings → Prediction model**.
+
+There is no default URL, because the file is yours and hosted wherever suits
+you. Until one is set the app ranks lineups with the projection heuristic, which
+is a working fallback rather than an error state; the settings screen says which
+of the two is currently driving your recommendations.
+
+`ModelRefreshWorker` then re-fetches every 12 hours. That is deliberately more
+often than the bundle changes: the moment that matters is Sunday morning when
+inactives land, and a weekly schedule anchored to the wrong day would routinely
+be a week stale.
 
 Not modelled: kickers and defenses, which keep the plain projection.
 

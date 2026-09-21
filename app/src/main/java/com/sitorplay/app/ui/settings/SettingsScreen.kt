@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
@@ -200,6 +201,10 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
+            PredictionModelSection(state = state, viewModel = viewModel)
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
             EspnImportSection(state = espnState, viewModel = espnImportViewModel)
         }
     }
@@ -221,6 +226,72 @@ fun SettingsScreen(
             dismissButton = {
                 TextButton(onClick = { teamPendingRename = null }) { Text("Cancel") }
             }
+        )
+    }
+}
+
+/**
+ * Points the app at a weekly feature bundle and reports what it managed to load.
+ *
+ * The URL is not shipped with a default because the bundle is produced by
+ * `model/build_week.py` and hosted by whoever runs it -- typically as a release
+ * asset that a weekly job overwrites. Left blank, the app ranks lineups with the
+ * projection heuristic instead, which is a real fallback rather than an error.
+ */
+@Composable
+private fun PredictionModelSection(state: SettingsUiState, viewModel: SettingsViewModel) {
+    var url by remember(state.modelBundleUrl) { mutableStateOf(state.modelBundleUrl) }
+    val status = state.modelStatus
+
+    Text("Prediction model", style = MaterialTheme.typography.titleMedium)
+    Text(
+        if (status.modelLoaded) {
+            "Model loaded, trained through ${status.trainedThrough} (${status.scoring.uppercase()})."
+        } else {
+            "Model not loaded."
+        },
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier.padding(top = 4.dp)
+    )
+    Text(
+        if (status.bundlePlayers > 0) {
+            "This week: ${status.bundleSeason} week ${status.bundleWeek}, " +
+                "${status.bundlePlayers} players."
+        } else {
+            "No weekly data yet — lineups fall back to projected points."
+        },
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
+    OutlinedTextField(
+        value = url,
+        onValueChange = { url = it },
+        label = { Text("Weekly bundle URL") },
+        placeholder = { Text("https://…/week.json.gz") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+    )
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        TextButton(
+            onClick = { viewModel.setModelBundleUrl(url) },
+            enabled = url != state.modelBundleUrl
+        ) { Text("Save") }
+        TextButton(
+            onClick = viewModel::refreshModel,
+            enabled = state.modelBundleUrl.isNotBlank() && !state.isRefreshingModel
+        ) { Text("Refresh now") }
+        if (state.isRefreshingModel) {
+            CircularProgressIndicator(Modifier.size(16.dp))
+        }
+    }
+
+    status.lastError?.let { error ->
+        Text(
+            error,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error
         )
     }
 }

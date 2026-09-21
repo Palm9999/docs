@@ -3,6 +3,9 @@ package com.sitorplay.app.ui.settings
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sitorplay.app.data.prediction.ModelRefreshWorker
+import com.sitorplay.app.data.prediction.ModelStatus
+import com.sitorplay.app.data.prediction.PredictionRepository
 import com.sitorplay.app.data.repository.TeamRepository
 import com.sitorplay.app.data.settings.AppSettingsRepository
 import com.sitorplay.app.data.settings.ScoringFormat
@@ -12,6 +15,8 @@ import com.sitorplay.app.notification.LineupReminderScheduler
 import com.sitorplay.app.notification.showLineupReminderNotification
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -25,17 +30,25 @@ data class SettingsUiState(
     val teams: List<Team> = emptyList(),
     val selectedTeamId: Long = -1L,
     val lineupSettings: LineupSettings = LineupSettings(),
-    val lockRemindersEnabled: Boolean = false
+    val lockRemindersEnabled: Boolean = false,
+    val modelBundleUrl: String = "",
+    val modelStatus: ModelStatus = ModelStatus(),
+    val isRefreshingModel: Boolean = false
 )
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val teamRepository: TeamRepository,
     private val appSettingsRepository: AppSettingsRepository,
+    private val predictionRepository: PredictionRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
-    val uiState: StateFlow<SettingsUiState> = combine(
+    private val isRefreshingModel = MutableStateFlow(false)
+
+    // Kotlin's typed combine tops out at five flows, so the settings that existed
+    // before are folded first and the model state layered on top.
+    private val baseState: Flow<SettingsUiState> = combine(
         teamRepository.observeTeams(),
         appSettingsRepository.selectedTeamId,
         appSettingsRepository.scoringFormat,
@@ -49,7 +62,39 @@ class SettingsViewModel @Inject constructor(
             lineupSettings = lineupSettings,
             lockRemindersEnabled = remindersEnabled
         )
+    }
+
+    val uiState: StateFlow<SettingsUiState> = combine(
+        baseState,
+        appSettingsRepository.modelBundleUrl,
+        predictionRepository.status,
+        isRefreshingModel
+    ) { base, url, status, refreshing ->
+        base.copy(modelBundleUrl = url, modelStatus = status, isRefreshingModel = refreshing)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
+
+    /**
+     * Saves where the weekly feature bundle lives and fetches it immediately, so
+     * the user finds out whether the URL works while they are still looking at
+     * the field rather than at kickoff.
+     */
+    fun setModelBundleUrl(url: String) {
+        appSettingsRepository.setModelBundleUrl(url)
+        if (url.isBlank()) {
+            ModelRefreshWorker.cancel(context)
+        } else {
+            ModelRefreshWorker.schedule(context)
+            refreshModel()
+        }
+    }
+
+    fun refreshModel() {
+        viewModelScope.launch {
+            isRefreshingModel.value = true
+            runCatching { predictionRepository.refreshWeeklyBundle() }
+            isRefreshingModel.value = false
+        }
+    }
 
     fun selectScoringFormat(format: ScoringFormat) {
         appSettingsRepository.setScoringFormat(format)

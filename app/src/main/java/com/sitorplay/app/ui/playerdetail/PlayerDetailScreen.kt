@@ -80,6 +80,24 @@ fun PlayerDetailScreen(
                         "Adjusted projection: ${"%.1f".format(current.adjustedProjection)} pts",
                         style = MaterialTheme.typography.bodyLarge
                     )
+                    current.projection?.let { projection ->
+                        // Floor and ceiling are the 15th and 85th percentiles, so
+                        // roughly seven weeks in ten land inside this band.
+                        Text(
+                            "Floor ${"%.1f".format(projection.range.floor)} · " +
+                                "Median ${"%.1f".format(projection.range.median)} · " +
+                                "Ceiling ${"%.1f".format(projection.range.ceiling)}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        if (projection.playProbability < 1.0) {
+                            Text(
+                                "${"%.0f".format(projection.playProbability * 100)}% chance of playing, " +
+                                    "based on the injury report",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                     Text("Why:", style = MaterialTheme.typography.titleMedium)
                     current.reasons.forEach { reason ->
                         Text("• $reason", style = MaterialTheme.typography.bodyMedium)
