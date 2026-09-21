@@ -1,0 +1,10 @@
+# Downloaded nflverse tables and derived frames - regenerate with run_phase0.py
+data/*.csv
+data/*.parquet
+artifacts/
+__pycache__/
+*.pyc
+
+# Collected consensus projections are the one data file worth keeping, since they
+# cannot be re-downloaded for a past week.
+!data/consensus_projections.csv
