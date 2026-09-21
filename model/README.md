@@ -19,7 +19,7 @@ player-weeks that happened strictly earlier than the week it predicts.
 
 | Model | MAE | RMSE | Spearman | Start/sit accuracy |
 |---|---|---|---|---|
-| **Quantile LightGBM** | **4.32** | **6.19** | **0.681** | **73.4%** |
+| **Quantile LightGBM** | **4.28** | **6.17** | **0.686** | **74.1%** |
 | Season-to-date average | 4.58 | 6.47 | 0.650 | 72.8% |
 | 50/50 blend | 4.57 | 6.43 | 0.658 | 72.8% |
 | Last-3 average | 4.75 | 6.67 | 0.638 | 71.6% |
@@ -31,25 +31,32 @@ MAE here, because the app never asks "how many points" — it asks "which of the
 two do I start", and MAE is dominated by a handful of 30-point outlier weeks
 nobody can predict.
 
-The model beats the current app rule by **8.6% on MAE** and **1.5 points of
+The model beats the current app rule by **9.4% on MAE** and **2.2 points of
 start/sit accuracy**. That second number is the honest one: moving from 71.9% to
-73.4% is roughly one extra correct lineup call every three weeks. Real, but not
+74.1% is roughly one extra correct lineup call every other week. Real, but not
 the kind of edge that wins a league on its own.
+
+Model size was tuned rather than assumed, and the result was counter-intuitive:
+400 trees at 31 leaves **overfit**, scoring worse than 100 trees at 15 leaves
+while producing a model five times larger. The small model wins twice, since it
+also has to fit in an APK.
 
 ### Per position
 
 | Position | n | Model MAE | Baseline MAE | Model acc | Baseline acc |
 |---|---|---|---|---|---|
-| RB | 4,402 | 4.26 | 4.49 | 76.6% | 76.2% |
-| WR | 7,136 | 4.27 | 4.57 | 75.0% | 74.3% |
-| TE | 3,557 | 3.46 | 3.69 | 72.6% | 71.7% |
-| QB | 1,910 | 6.25 | 6.43 | **66.7%** | **67.1%** |
+| RB | 4,402 | 4.21 | 4.49 | 76.8% | 76.2% |
+| WR | 7,136 | 4.24 | 4.57 | 75.1% | 74.3% |
+| TE | 3,557 | 3.41 | 3.69 | 73.2% | 71.7% |
+| QB | 1,910 | 6.21 | 6.43 | 67.5% | 67.1% |
 
-**QB is where the model fails.** It edges the baseline on MAE but is *worse* at
-the ranking question, which is the one that matters. QB has the fewest rows and
-the least usage variance — every starter plays every snap, so the usage features
-that carry RB and WR have nothing to say. Until that is fixed, the app should
-keep showing the plain projection for quarterbacks rather than a model number.
+**QB remains the weakest position by a wide margin**, and was an outright
+negative result until the model was shrunk: at 400 trees it ranked quarterbacks
+*worse* than a rolling average (66.7% against 67.1%). The smaller model turns
+that around, but only to 67.5% against 67.1% — a margin thin enough that it
+should not be treated as settled. Quarterbacks have the fewest rows and almost no
+usage variance, since every starter plays every snap, so the opportunity features
+that carry the other positions have nothing to say.
 
 ## What the model actually learned
 
@@ -87,11 +94,17 @@ Sleeper already returns `practice_participation` on the same payload the app
 reads.
 
 **Raw quantile models lie about their range.** Fitted independently, the p15–p85
-interval covered the true score only **56%** of the time instead of 70% — each
+interval covered the true score only **65.5%** of the time instead of 70% — each
 model is pulled toward the median by its own regularisation. `train.calibrate()`
 fixes this with a conformal widening factor fit on held-out predictions, which
-brings coverage to **73%**. Do not ship intervals without it; a floor that is
-wrong half the time is worse than no floor.
+brings coverage to **71.6%**. Do not ship intervals without it; a floor that is
+wrong more often than it claims is worse than no floor. (The 400-tree model
+needed far more correction, covering only 56% raw — over-confidence is another
+cost of the oversized model.)
+
+A floor is deliberately **not clamped at zero**. Fantasy scoring really does go
+negative, and clamping broke the `floor <= median` ordering for players whose
+median sits near zero — caught by `WeeklyBundleTest` scoring a full live slate.
 
 ## Leakage control
 
@@ -126,6 +139,44 @@ Also open: kickers and defenses are not modelled; `vacated_target_share` is buil
 from injury reports rather than confirmed inactives, so it misses late scratches;
 and no weather feature beyond wind and temperature.
 
+**Sleeper's player ids are patchy.** Its payload documents a `gsis_id` that would
+join straight onto nflverse, but it is populated for only a minority of active
+players — 155 of 817 active skill players, with CeeDee Lamb carrying neither a
+gsis nor an espn id. `bridge.py` therefore falls back to a normalised
+name-and-position match, which lifts coverage from 16% to 96%. The ~4% that
+remain unmatched are fullbacks and deep bench, and they are listed by name on
+every run rather than silently dropped.
+
+## Phase 1: shipping it to the app
+
+The model runs on the phone. A gradient-boosted ensemble is just summed decision
+trees, so rather than add ~15MB of ONNX Runtime to evaluate a pile of
+if-statements, `export.py` flattens each tree into parallel primitive arrays and
+a ~120-line Kotlin walker evaluates them. The whole model is **299 KB gzipped**.
+
+`ModelParityTest` proves the port is exact: 40 real feature rows scored by Python
+at export time, re-scored by the Kotlin walker, **worst delta 0.0**. Half the
+fixtures deliberately contain missing features, because NaN routing is where an
+independent reimplementation drifts while still looking plausible — LightGBM only
+sends a NaN down the default branch when that split was trained with missing
+values present, and coerces it to zero otherwise.
+
+Features are not computed on the phone. Rolling usage, defence adjustments and
+vacated shares all need season-long history, so `build_week.py` publishes
+ready-made feature vectors for one week — **64 KB gzipped for a 552-player
+slate** — and the app scores them locally. That keeps projections instant and
+offline while still allowing a re-score when the user asks a what-if question or
+an injury designation flips on Sunday morning.
+
+```bash
+python3 export_model.py                      # model.json.gz + parity fixtures
+python3 build_week.py --season 2026 --week 3 # week.json.gz for the app
+```
+
+Both artifacts carry their feature list, and the app refuses to score a bundle
+whose list disagrees with the model's rather than lining the vectors up
+positionally and producing confident nonsense.
+
 ## Layout
 
 ```
@@ -135,7 +186,12 @@ nflpredict/
   features.py    leakage-safe feature construction (67 features)
   train.py       per-position quantile LightGBM + conformal calibration
   backtest.py    walk-forward loop, baselines, metrics, play-rate table
+  export.py      flattens the trees into the app's JSON format
+  weekly.py      feature rows for a week that has not been played yet
+  bridge.py      nflverse <-> Sleeper player id matching
 run_phase0.py           the whole pipeline end to end
+export_model.py         writes the app's model assets
+build_week.py           writes one week's feature bundle
 collect_projections.py  weekly Sleeper consensus logger
 ```
 

@@ -17,7 +17,7 @@ from .features import FEATURES
 PARAMS = {
     "objective": "quantile",
     "learning_rate": 0.05,
-    "num_leaves": 31,
+    "num_leaves": 15,
     "min_data_in_leaf": 40,
     "feature_fraction": 0.8,
     "bagging_fraction": 0.8,
@@ -26,7 +26,10 @@ PARAMS = {
     "verbose": -1,
     "num_threads": 0,
 }
-N_ROUNDS = 400
+# Tuned by holdout rather than assumed: 400 rounds at 31 leaves overfit, scoring
+# worse than this while producing a model 5x larger. Small matters twice here,
+# because the export has to fit in an APK asset.
+N_ROUNDS = 100
 
 
 def fit_position(train: pd.DataFrame, quantiles=QUANTILES, n_rounds: int = N_ROUNDS) -> dict:
@@ -106,5 +109,7 @@ def apply_calibration(preds: pd.DataFrame, factors: dict[str, tuple[float, float
         m = out.position == pos
         out.loc[m, "p15"] = out.loc[m, "p50"] - s_lo * (out.loc[m, "p50"] - out.loc[m, "p15"])
         out.loc[m, "p85"] = out.loc[m, "p50"] + s_hi * (out.loc[m, "p85"] - out.loc[m, "p50"])
-    out["p15"] = out.p15.clip(lower=0.0)  # a player cannot score negative points
+    # Not clipped at zero: fantasy points really do go negative (a lost fumble is
+    # -2), and clipping breaks the p15 <= p50 ordering for players whose median is
+    # itself near zero. Clamp at the display edge if a UI wants to.
     return out

@@ -26,11 +26,24 @@ STATIC = {
 }
 
 
-def _fetch(url: str, dest) -> None:
+def _fetch(url: str, dest) -> bool:
+    """Returns False for a release file that does not exist yet.
+
+    The current season's files appear as the year progresses, so a missing one is
+    normal in September and must not abort the whole download.
+    """
     if dest.exists() and dest.stat().st_size > 1024:
-        return
+        return True
     print(f"  downloading {dest.name}", file=sys.stderr)
-    urllib.request.urlretrieve(url, dest)
+    try:
+        urllib.request.urlretrieve(url, dest)
+        return True
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            print(f"  (not published yet: {dest.name})", file=sys.stderr)
+            dest.unlink(missing_ok=True)
+            return False
+        raise
 
 
 def download() -> None:
@@ -46,7 +59,13 @@ def download() -> None:
 
 
 def _concat(template: str) -> pd.DataFrame:
-    frames = [pd.read_csv(DATA / template.format(year=y), low_memory=False) for y in SEASONS]
+    frames = [
+        pd.read_csv(DATA / template.format(year=y), low_memory=False)
+        for y in SEASONS
+        if (DATA / template.format(year=y)).exists()
+    ]
+    if not frames:
+        raise FileNotFoundError(f"no files matching {template} -- run download() first")
     return pd.concat(frames, ignore_index=True)
 
 

@@ -199,12 +199,24 @@ FEATURES = (
 )
 
 
-def build(df: pd.DataFrame, scoring: str = SCORING) -> pd.DataFrame:
+def pipeline(df: pd.DataFrame, scoring: str = SCORING) -> pd.DataFrame:
+    """Feature construction with no row filtering.
+
+    Rows for a week that has not been played yet can be appended to `df` before
+    calling this: the shift-then-roll logic puts them last in each player's
+    timeline, so their features are built from completed weeks and nothing else.
+    """
     df = _base(df, scoring)
     df = _rolling(df)
     df = _prior_season(df)
     df = _defense_vs_position(df)
     df = _vacancy(df)
+    df["dvp_rank"] = df.dvp_rank.astype("float64")
+    return df
+
+
+def build(df: pd.DataFrame, scoring: str = SCORING) -> pd.DataFrame:
+    df = pipeline(df, scoring)
 
     # Players ruled Out are a hard zero in the app, not a prediction problem, and
     # training on them would teach the model to shade everyone down.
@@ -213,6 +225,6 @@ def build(df: pd.DataFrame, scoring: str = SCORING) -> pd.DataFrame:
     # compare against have nothing to work with either. Counted over the career, so
     # week 1 of a returning player's season still qualifies.
     df = df[df.career_games_prior >= MIN_PRIOR_GAMES]
-
-    df["dvp_rank"] = df.dvp_rank.astype("float64")
+    # Outcome must exist: rows for an unplayed week are for prediction, not training.
+    df = df[df.fp.notna()]
     return df.reset_index(drop=True)

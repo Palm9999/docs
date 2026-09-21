@@ -6,7 +6,8 @@ import androidx.room.TypeConverters
 
 @Database(
     entities = [PlayerEntity::class, NflPlayerEntity::class, TeamEntity::class, FavoritePlayerEntity::class],
-    version = 4,
+    // v5 adds practiceParticipation to players and nfl_players.
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

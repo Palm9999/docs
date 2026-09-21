@@ -16,6 +16,7 @@ import com.sitorplay.app.domain.model.NflPlayer
 import com.sitorplay.app.domain.model.Player
 import com.sitorplay.app.domain.model.PlayerDetailExtras
 import com.sitorplay.app.domain.model.Position
+import com.sitorplay.app.domain.model.PracticeParticipation
 import com.sitorplay.app.domain.model.TrendDirection
 import com.sitorplay.app.domain.model.TrendInfo
 import com.sitorplay.app.domain.model.WaiverSuggestion
@@ -56,6 +57,7 @@ class NflDataRepository @Inject constructor(
                     position = Position.valueOf(dto.position!!),
                     nflTeam = dto.team ?: "FA",
                     injuryStatus = mapInjuryStatus(dto.injury_status),
+                    practiceParticipation = PracticeParticipation.fromSleeper(dto.practice_participation),
                     injuryBodyPart = dto.injury_body_part,
                     injuryNotes = dto.injury_notes
                 )
@@ -80,7 +82,9 @@ class NflDataRepository @Inject constructor(
         return WeeklyContext(
             projectedPoints = projection.pointsFor(appSettingsRepository.scoringFormat.value),
             opponent = resolveOpponent(cachedPlayer?.nflTeam, week),
-            injuryStatus = cachedPlayer?.injuryStatus ?: InjuryStatus.HEALTHY
+            injuryStatus = cachedPlayer?.injuryStatus ?: InjuryStatus.HEALTHY,
+            practiceParticipation = cachedPlayer?.practiceParticipation
+                ?: PracticeParticipation.UNKNOWN
         )
     }
 
@@ -97,7 +101,8 @@ class NflDataRepository @Inject constructor(
                 nflTeam = cachedPlayer.nflTeam,
                 opponent = resolveOpponent(cachedPlayer.nflTeam, week) ?: player.opponent,
                 projectedPoints = if (projection != null) projection.pointsFor(format) else player.projectedPoints,
-                injuryStatus = cachedPlayer.injuryStatus
+                injuryStatus = cachedPlayer.injuryStatus,
+                practiceParticipation = cachedPlayer.practiceParticipation
             )
         }
     }

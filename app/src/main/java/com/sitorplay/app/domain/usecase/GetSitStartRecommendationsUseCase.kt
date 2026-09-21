@@ -6,6 +6,8 @@ import com.sitorplay.app.domain.model.InjuryStatus
 import com.sitorplay.app.domain.model.LineupSettings
 import com.sitorplay.app.domain.model.Player
 import com.sitorplay.app.domain.model.Position
+import com.sitorplay.app.domain.model.PracticeParticipation
+import com.sitorplay.app.domain.prediction.PlayRates
 import com.sitorplay.app.domain.model.Recommendation
 import javax.inject.Inject
 
@@ -85,7 +87,8 @@ class GetSitStartRecommendationsUseCase @Inject constructor() {
     private fun adjustedProjection(player: Player): Double = MatchupScoring.adjustedProjection(
         projectedPoints = player.projectedPoints,
         opponentDefenseRank = player.opponentDefenseRank,
-        injuryStatus = player.injuryStatus
+        injuryStatus = player.injuryStatus,
+        practiceParticipation = player.practiceParticipation
     )
 
     private fun reasonsFor(player: Player, score: Double, rankIndex: Int, slots: Int): List<String> {
@@ -96,8 +99,14 @@ class GetSitStartRecommendationsUseCase @Inject constructor() {
             player.opponentDefenseRank <= 24 -> "Average matchup (defense ranked #${player.opponentDefenseRank} vs ${player.position})"
             else -> "Favorable matchup (defense ranked #${player.opponentDefenseRank} vs ${player.position})"
         }
-        if (player.injuryStatus.multiplier < 1.0) {
-            reasons += "Injury concern: ${player.injuryStatus.label}"
+        if (player.injuryStatus != InjuryStatus.HEALTHY) {
+            val odds = PlayRates.DEFAULT.probability(player.injuryStatus, player.practiceParticipation)
+            val practice = player.practiceParticipation
+                .takeIf { it != PracticeParticipation.UNKNOWN }
+                ?.let { ", ${it.label.lowercase()}" }
+                .orEmpty()
+            reasons += "${player.injuryStatus.label}$practice — " +
+                "played ${"%.0f".format(odds * 100)}% of the time historically"
         }
         reasons += if (rankIndex < slots) {
             "Ranked #${rankIndex + 1} at ${player.position} on your roster this week"

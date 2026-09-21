@@ -23,6 +23,8 @@ data class SleeperPlayerDto(
     val team: String? = null,
     val active: Boolean = false,
     val injury_status: String? = null,
+    /** Free text such as "Full Participation in Practice"; parsed by PracticeParticipation. */
+    val practice_participation: String? = null,
     val injury_body_part: String? = null,
     val injury_notes: String? = null
 )

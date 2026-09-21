@@ -8,8 +8,11 @@ OUT = ROOT / "artifacts"
 NFLVERSE = "https://github.com/nflverse/nflverse-data/releases/download"
 
 # 2021+ only: the 2020 COVID season distorts usage and snap patterns badly enough
-# that including it hurt more than the extra rows helped.
-SEASONS = [2021, 2022, 2023, 2024, 2025]
+# that including it hurt more than the extra rows helped. The current season is
+# included so live weeks can be projected; partial-season files are tolerated.
+FIRST_SEASON = 2021
+CURRENT_SEASON = 2026
+SEASONS = list(range(FIRST_SEASON, CURRENT_SEASON + 1))
 POSITIONS = ["QB", "RB", "WR", "TE"]
 
 # Quantiles trained per position -> floor / median / ceiling.

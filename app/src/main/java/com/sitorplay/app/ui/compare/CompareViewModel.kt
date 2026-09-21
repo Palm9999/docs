@@ -32,7 +32,9 @@ data class ComparisonPlayer(
 ) {
     val adjustedProjection: Double
         get() = opponentDefenseRank.toIntOrNull()?.let {
-            MatchupScoring.adjustedProjection(projectedPoints, it, player.injuryStatus)
+            MatchupScoring.adjustedProjection(
+                projectedPoints, it, player.injuryStatus, player.practiceParticipation
+            )
         } ?: 0.0
 }
 

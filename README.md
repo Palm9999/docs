@@ -19,8 +19,12 @@ adjusted = projectedPoints * matchupMultiplier(opponentDefenseRank) * injuryMult
 
 - `matchupMultiplier`: tougher matchups (defense ranked in the top 8 against
   that position) knock points down; easier matchups (bottom 8) bump them up.
-- `injuryMultiplier`: `HEALTHY` = 1.0, `QUESTIONABLE` = 0.85,
-  `DOUBTFUL` = 0.5, `OUT` = 0.0.
+- `injuryMultiplier`: the odds the player actually takes the field, measured
+  rather than assumed. This used to be a flat 0.85 for `QUESTIONABLE`; across
+  2023-2025 a Questionable player played **60.6%** of the time, and practice
+  participation splits that from 40.4% (did not practise) to 65.5% (full
+  practice). `OUT` is 0.0 and `HEALTHY` is 1.0 as before. See
+  `domain/prediction/Projection.kt` and `model/README.md`.
 
 Within each position group, the top N players by adjusted projection fill
 the standard lineup slots (1 QB, 2 RB, 2 WR, 1 TE, 1 K, 1 DEF); everyone
@@ -28,6 +32,31 @@ else is a **Sit**. Whichever RB/WR/TE is left with the best adjusted
 projection fills the **FLEX** slot. Each recommendation carries a list of
 plain-English reasons (matchup quality, injury status, ranking within the
 position) shown on the player detail screen.
+
+## The prediction model
+
+Beyond the heuristic above, the app ships a gradient-boosted model trained on
+free nflverse data (`model/`, see its README for the backtest). Over 2023-2025 it
+ranks start/sit decisions correctly **74.1%** of the time against **71.9%** for
+the heuristic alone.
+
+It runs **entirely on device**. `domain/prediction/` holds a tree walker that
+evaluates the exported ensemble directly — the model is 299 KB gzipped in
+`assets/`, versus the ~15MB an ONNX runtime would add to do the same arithmetic.
+`ModelParityTest` asserts the Kotlin output matches Python's to the last bit.
+
+Each player gets a **floor / median / ceiling**, not a single number, because the
+real question is not "how many points" but "which of these two do I start" — and
+that depends on your matchup. Against a heavy favourite you want the better
+floor; as a heavy underdog you need the better ceiling. Expected points are
+`P(plays) x E[points | plays]`, keeping the two sources of uncertainty separate.
+
+Features are too heavy to compute on a phone — rolling usage, schedule-adjusted
+defence, vacated target share — so `model/build_week.py` publishes a small weekly
+bundle (64 KB for a full slate) that the app scores locally. Live injury news can
+override a feature and re-score instantly without waiting for a new bundle.
+
+Not modelled: kickers and defenses, which keep the plain projection.
 
 ## Live rosters and stats
 
@@ -58,7 +87,10 @@ MVVM with a repository pattern, built for Jetpack Compose:
 
 ```
 ui/            Compose screens + ViewModels (Roster, Player Detail, Add Player)
-domain/        Player/Recommendation models + the recommendation use case (no Android deps)
+domain/
+  model/       Player/Recommendation types (no Android deps)
+  prediction/  on-device GBM scorer, weekly feature bundle, play-rate table
+  usecase/     the sit/start recommendation engine
 data/
   local/       Room entities/DAOs for the roster and the cached NFL player directory
   remote/      Retrofit APIs + DTOs for Sleeper (players/projections) and ESPN (scoreboard)

@@ -3,6 +3,7 @@ package com.sitorplay.app.data.local
 import androidx.room.TypeConverter
 import com.sitorplay.app.domain.model.InjuryStatus
 import com.sitorplay.app.domain.model.Position
+import com.sitorplay.app.domain.model.PracticeParticipation
 import com.sitorplay.app.domain.model.RosterSlot
 
 class Converters {
@@ -17,6 +18,13 @@ class Converters {
 
     @TypeConverter
     fun toInjuryStatus(value: String): InjuryStatus = InjuryStatus.valueOf(value)
+
+    @TypeConverter
+    fun fromPracticeParticipation(value: PracticeParticipation): String = value.name
+
+    @TypeConverter
+    fun toPracticeParticipation(value: String): PracticeParticipation =
+        PracticeParticipation.valueOf(value)
 
     @TypeConverter
     fun fromRosterSlot(value: RosterSlot): String = value.name
