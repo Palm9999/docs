@@ -169,6 +169,11 @@ fun CompareScreen(
     }
 }
 
+private fun isWinner(mine: ComparisonPlayer?, other: ComparisonPlayer?): Boolean {
+    if (mine == null || other == null) return false
+    return mine.adjustedProjection > other.adjustedProjection
+}
+
 /**
  * The two stat lines side by side.
  *
