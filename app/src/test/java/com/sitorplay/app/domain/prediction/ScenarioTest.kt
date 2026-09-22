@@ -172,6 +172,39 @@ class ScenarioTest {
     }
 
     @Test
+    fun `team-mates come back busiest first when the model is supplied`() {
+        val player = busyReceiver()
+        val targetShare = model.featureNames.indexOf("target_share_r3")
+        val carryShare = model.featureNames.indexOf("carry_share_r3")
+
+        fun usage(p: WeeklyPlayer): Double {
+            val t = p.features[targetShare].let { if (it.isNaN()) 0.0 else it }
+            val c = p.features[carryShare].let { if (it.isNaN()) 0.0 else it }
+            return t + c
+        }
+
+        val ordered = bundle.teammatesOf(player.sleeperId, model)
+        assertTrue("expected team-mates", ordered.size > 3)
+        ordered.zipWithNext().forEach { (a, b) ->
+            assertTrue(
+                "${a.name} (${usage(a)}) should not rank below ${b.name} (${usage(b)})",
+                usage(a) >= usage(b) - 1e-9
+            )
+        }
+        // The point of the ordering: whoever matters most is reachable without
+        // scrolling past a dozen backups.
+        assertTrue("busiest team-mate should lead", usage(ordered.first()) > 0.0)
+    }
+
+    @Test
+    fun `without a model the ordering is still stable`() {
+        val player = busyReceiver()
+        val first = bundle.teammatesOf(player.sleeperId)
+        val second = bundle.teammatesOf(player.sleeperId)
+        assertEquals(first.map { it.sleeperId }, second.map { it.sleeperId })
+    }
+
+    @Test
     fun `an unknown player yields nothing rather than a guess`() {
         assertNull(
             bundle.projectScenario(

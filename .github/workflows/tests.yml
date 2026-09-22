@@ -41,6 +41,22 @@ jobs:
       - name: Unit tests
         run: ./gradlew test --stacktrace
 
+      # Compiling is not the same as packaging. Resource and manifest merging,
+      # asset packaging and dexing all happen here and nowhere else, so without
+      # this step the first time anyone finds out whether an APK can be produced
+      # is when they try to produce one.
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      # Means every push leaves a debug APK that can be downloaded and side-loaded
+      # straight onto a phone, with no local Android Studio needed.
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: sit-or-play-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+
       # The reports say which assertion failed; the console output alone often
       # does not for parameterised cases.
       - name: Upload test reports
