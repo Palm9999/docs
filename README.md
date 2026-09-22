@@ -50,6 +50,25 @@ real question is not "how many points" but "which of these two do I start" — a
 that depends on your matchup. Expected points are `P(plays) x E[points | plays]`,
 keeping the two sources of uncertainty separate.
 
+### What if a team-mate sits?
+
+The player detail screen lists a player's team-mates and lets you move any of
+them in or out of this week's lineup. The projection is recomputed on the phone
+as you toggle, because vacated target and carry share are already model inputs —
+so this is a real re-score, not a rule of thumb. It is the question a static
+projection cannot answer and the one worth asking on a Sunday morning when a
+starter is announced inactive.
+
+Changes apply as a delta against the bundle's own figure rather than being
+recomputed from the visible squad, because the bundle counted absent players the
+app cannot see: anyone whose Sleeper id could not be matched, or who has too
+little history to project, still vacated real usage.
+
+One deliberate override: ruling a team-mate out can never lower a projection.
+That is football rather than fit, and the trees do not know it — on a feature
+this weak they move either way. See `model/README.md` for why it could not be
+trained in.
+
 ### Start/sit by win probability
 
 The compare screen turns that range into the answer the projection cannot give.

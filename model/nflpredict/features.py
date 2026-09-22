@@ -141,7 +141,7 @@ def _defense_vs_position(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def _vacancy(df: pd.DataFrame) -> pd.DataFrame:
+def _vacancy(df: pd.DataFrame, extra_injuries: pd.DataFrame | None = None) -> pd.DataFrame:
     """Usage freed up by teammates who are Out or Doubtful this week.
 
     This is the feature consensus projections are slowest to reflect, so it is
@@ -150,6 +150,14 @@ def _vacancy(df: pd.DataFrame) -> pd.DataFrame:
     forward from the last week they played.
     """
     from .ingest import load_injuries
+    from .live import merge_injuries
+
+    # For a week whose official report is not out yet, `extra_injuries` carries
+    # live status; without it every teammate reads as healthy and the vacancy
+    # features are silently zero.
+    injuries_all = load_injuries()
+    if extra_injuries is not None and not extra_injuries.empty:
+        injuries_all = merge_injuries(injuries_all, extra_injuries)
 
     usage = df[["player_id", "season", "week", "team", "target_share_r3", "carry_share_r3"]]
 
@@ -170,8 +178,7 @@ def _vacancy(df: pd.DataFrame) -> pd.DataFrame:
         ].ffill()
     )
 
-    inj = load_injuries()
-    sidelined = inj[inj.report_code <= 1][["season", "week", "player_id"]]
+    sidelined = injuries_all[injuries_all.report_code <= 1][["season", "week", "player_id"]]
     sidelined = sidelined.merge(filled, on=["season", "week", "player_id"], how="inner")
 
     vacated = (
@@ -199,7 +206,11 @@ FEATURES = (
 )
 
 
-def pipeline(df: pd.DataFrame, scoring: str = SCORING) -> pd.DataFrame:
+def pipeline(
+    df: pd.DataFrame,
+    scoring: str = SCORING,
+    extra_injuries: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     """Feature construction with no row filtering.
 
     Rows for a week that has not been played yet can be appended to `df` before
@@ -210,7 +221,7 @@ def pipeline(df: pd.DataFrame, scoring: str = SCORING) -> pd.DataFrame:
     df = _rolling(df)
     df = _prior_season(df)
     df = _defense_vs_position(df)
-    df = _vacancy(df)
+    df = _vacancy(df, extra_injuries)
     df["dvp_rank"] = df.dvp_rank.astype("float64")
     return df
 

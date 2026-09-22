@@ -15,6 +15,7 @@ import pandas as pd
 from .config import POSITIONS
 from .features import FEATURES, pipeline
 from .ingest import load_games, load_injuries
+from .live import merge_injuries
 
 # Identity and context columns that a placeholder row must carry itself; anything
 # else is derived from history by the pipeline.
@@ -41,6 +42,7 @@ def upcoming_rows(
     week: int,
     teams: dict[str, str] | None = None,
     lookback: int = 6,
+    live_injuries: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """One placeholder row per active player with a game scheduled that week.
 
@@ -65,8 +67,12 @@ def upcoming_rows(
     rows["week"] = week
 
     # The injury report for the target week is published before kickoff, so it is
-    # legitimate input rather than leakage.
+    # legitimate input rather than leakage. Early in the week it does not exist
+    # yet, and `live_injuries` covers the gap -- see live.py for why filling in
+    # "not on the report" instead would be actively wrong.
     injuries = load_injuries()
+    if live_injuries is not None and not live_injuries.empty:
+        injuries = merge_injuries(injuries, live_injuries)
     injuries = injuries[(injuries.season == season) & (injuries.week == week)]
     rows = rows.merge(
         injuries[["player_id", "practice_code", "report_code"]],
@@ -82,11 +88,17 @@ def upcoming_rows(
     return rows[history.columns]
 
 
-def build_week(history: pd.DataFrame, season: int, week: int, **kwargs) -> pd.DataFrame:
+def build_week(
+    history: pd.DataFrame,
+    season: int,
+    week: int,
+    live_injuries: pd.DataFrame | None = None,
+    **kwargs,
+) -> pd.DataFrame:
     """Feature rows for `season`/`week`, built from completed weeks only."""
-    pending = upcoming_rows(history, season, week, **kwargs)
+    pending = upcoming_rows(history, season, week, live_injuries=live_injuries, **kwargs)
     combined = pd.concat([history, pending], ignore_index=True)
-    featured = pipeline(combined)
+    featured = pipeline(combined, extra_injuries=live_injuries)
 
     rows = featured[(featured.season == season) & (featured.week == week)].copy()
     # A player with no prior game anywhere has nothing to predict from; the model

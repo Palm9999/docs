@@ -124,6 +124,43 @@ Rolling windows deliberately cross the season boundary. Resetting them each
 September left weeks 1–2 with no history and dropped 3,600 rows — including the
 weeks users most want help with.
 
+## The injury report does not exist early in the week
+
+nflverse publishes an official injury report only once one exists, so a bundle
+built on Monday or Tuesday has nothing for the coming Sunday. The pipeline
+filled those rows in as "not on the report" — the same code that means healthy —
+and the model, trained on rows where that code genuinely meant healthy, read it
+as a confident statement that nobody was hurt. Every vacancy feature was zero
+for the same reason.
+
+`live.py` closes the gap from Sleeper, which carries the same two fields live
+and is always at least as current, so it wins any disagreement. On the week this
+was written that recovered **128 injured players, 57 of them out**, and moved
+`vacated_target_share` from zero across the board to non-zero for 93 players.
+
+This is worth remembering as a shape of bug rather than a one-off: a missing
+value encoded as a real one is worse than a missing value, because nothing
+downstream can tell.
+
+## Two dead ends, recorded so they are not re-tried
+
+**Monotone constraints.** Vacated usage can only help a team-mate, but the trees
+do not know that, and on a feature this weak they move either way: ruling out a
+receiver could *lower* a team-mate's projection slightly. LightGBM rejects
+`monotone_constraints` with a quantile objective outright, so the guarantee
+cannot be trained in without giving up the quantiles. It is imposed at scoring
+time instead, in `WeeklyBundle.projectScenario`, where it only ever pulls a
+result back toward the baseline — the model still decides the size of a change,
+the constraint only decides its sign.
+
+**Depth chart position.** Trained on 2021–2023 and tested on 2024, adding depth
+chart rank and a starter flag moved MAE from 4.3719 to 4.3737 and start/sit
+accuracy from 74.14% to 74.59% — a single fold, well within noise. It also
+correlates −0.50 with `snap_pct_r3`, so it is mostly restating usage the model
+already has. Not worth it: nflverse changed the schema in 2025 from weekly
+snapshots to 545k daily rows with no week column, and reconciling that for a
+result this size is a poor trade.
+
 ## Known gaps
 
 **The consensus baseline is missing.** The baselines above are rolling averages,

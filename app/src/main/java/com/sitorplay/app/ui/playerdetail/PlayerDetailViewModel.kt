@@ -9,6 +9,9 @@ import com.sitorplay.app.data.sync.NflDataRepository
 import com.sitorplay.app.domain.model.PlayerDetailExtras
 import com.sitorplay.app.data.prediction.PredictionRepository
 import com.sitorplay.app.domain.model.Recommendation
+import com.sitorplay.app.domain.prediction.Projection
+import com.sitorplay.app.domain.prediction.Scenario
+import com.sitorplay.app.domain.prediction.WeeklyPlayer
 import com.sitorplay.app.domain.usecase.GetSitStartRecommendationsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -25,6 +28,27 @@ import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+/**
+ * The "what if a team-mate sits?" panel.
+ *
+ * [baseline] is kept alongside [adjusted] so the UI can show the movement rather
+ * than just the new number -- the change is the interesting part, and it is
+ * often small enough that a bare figure would not read as a change at all.
+ */
+data class WhatIfUiState(
+    val teammates: List<WeeklyPlayer> = emptyList(),
+    val scenario: Scenario = Scenario(),
+    val baseline: Projection? = null,
+    val adjusted: Projection? = null
+) {
+    val isAvailable: Boolean get() = teammates.isNotEmpty() && baseline != null
+
+    /** Points moved by the scenario; zero when nothing has been toggled. */
+    val delta: Double
+        get() = if (baseline == null || adjusted == null) 0.0
+        else adjusted.range.median - baseline.range.median
+}
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -63,6 +87,37 @@ class PlayerDetailViewModel @Inject constructor(
 
     private val _extras = MutableStateFlow(PlayerDetailExtras())
     val extras: StateFlow<PlayerDetailExtras> = _extras.asStateFlow()
+
+    private val _scenario = MutableStateFlow(Scenario())
+
+    /**
+     * Team-mates the user can move in or out, and what that does to this player.
+     *
+     * Empty when there is no weekly bundle, which is also the signal the UI uses
+     * to hide the section rather than show a control that does nothing.
+     */
+    val whatIf: StateFlow<WhatIfUiState> = combine(
+        recommendation,
+        _scenario
+    ) { current, scenario ->
+        val player = current?.player ?: return@combine WhatIfUiState()
+        val teammates = predictionRepository.teammatesOf(player.externalId)
+        if (teammates.isEmpty()) return@combine WhatIfUiState()
+        WhatIfUiState(
+            teammates = teammates,
+            scenario = scenario,
+            baseline = predictionRepository.projectionFor(player),
+            adjusted = predictionRepository.projectionFor(player, scenario)
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WhatIfUiState())
+
+    fun toggleTeammate(teammate: WeeklyPlayer) {
+        _scenario.value = _scenario.value.toggle(teammate.sleeperId, teammate.ruledOut)
+    }
+
+    fun clearScenario() {
+        _scenario.value = Scenario()
+    }
 
     private val _isLoadingExtras = MutableStateFlow(false)
     val isLoadingExtras: StateFlow<Boolean> = _isLoadingExtras.asStateFlow()

@@ -5,6 +5,7 @@ import com.sitorplay.app.domain.model.Position
 import com.sitorplay.app.domain.model.PracticeParticipation
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.int
@@ -28,6 +29,8 @@ data class WeeklyPlayer(
     val position: Position,
     val team: String,
     val opponent: String?,
+    /** Whether the bundle already counted this player as out when it was built. */
+    val ruledOut: Boolean,
     val features: DoubleArray
 ) {
     // DoubleArray gives this class reference equality by default, which silently
@@ -36,6 +39,64 @@ data class WeeklyPlayer(
         this === other || (other is WeeklyPlayer && sleeperId == other.sleeperId)
 
     override fun hashCode(): Int = sleeperId.hashCode()
+}
+
+/**
+ * Teammates the user has moved in or out of the lineup for a hypothetical.
+ *
+ * Both directions are needed: a player the bundle already has as out can be put
+ * back ("he's been upgraded to probable"), which removes usage the model was
+ * handing to everyone else.
+ */
+data class Scenario(
+    val ruledOut: Set<String> = emptySet(),
+    val clearedToPlay: Set<String> = emptySet()
+) {
+    val isEmpty: Boolean get() = ruledOut.isEmpty() && clearedToPlay.isEmpty()
+
+    fun toggle(sleeperId: String, wasRuledOut: Boolean): Scenario = when {
+        // Currently forced out by the scenario -> back to the bundle's view.
+        sleeperId in ruledOut -> copy(ruledOut = ruledOut - sleeperId)
+        sleeperId in clearedToPlay -> copy(clearedToPlay = clearedToPlay - sleeperId)
+        wasRuledOut -> copy(clearedToPlay = clearedToPlay + sleeperId)
+        else -> copy(ruledOut = ruledOut + sleeperId)
+    }
+
+    /** Whether this player is sitting once the scenario is applied. */
+    fun isOut(sleeperId: String, wasRuledOut: Boolean): Boolean = when {
+        sleeperId in ruledOut -> true
+        sleeperId in clearedToPlay -> false
+        else -> wasRuledOut
+    }
+}
+
+/**
+ * Where the features a scenario edits live in the model's vector.
+ *
+ * Resolved once by name rather than assumed by position, so a retrained model
+ * that reorders or renames its features disables the what-if instead of
+ * overwriting whichever feature happens to sit at that index.
+ */
+internal data class FeatureSlots(
+    val vacatedTargets: Int,
+    val vacatedCarries: Int,
+    val targetShare: Int,
+    val carryShare: Int
+) {
+    companion object {
+        fun of(model: PredictionModel): FeatureSlots? {
+            val slots = FeatureSlots(
+                vacatedTargets = model.featureNames.indexOf("vacated_target_share"),
+                vacatedCarries = model.featureNames.indexOf("vacated_carry_share"),
+                targetShare = model.featureNames.indexOf("target_share_r3"),
+                carryShare = model.featureNames.indexOf("carry_share_r3")
+            )
+            return slots.takeIf {
+                it.vacatedTargets >= 0 && it.vacatedCarries >= 0 &&
+                    it.targetShare >= 0 && it.carryShare >= 0
+            }
+        }
+    }
 }
 
 /**
@@ -85,6 +146,107 @@ class WeeklyBundle(
         return model.project(player.position, features, injuryStatus, practice)
     }
 
+    /** Everyone on a player's NFL team, excluding the player themselves. */
+    fun teammatesOf(sleeperId: String): List<WeeklyPlayer> {
+        val player = bySleeperId[sleeperId] ?: return emptyList()
+        // Sorted by position then name so the list is stable; ordering by usage
+        // would need the model, which this accessor deliberately does not take.
+        return bySleeperId.values
+            .filter { it.team == player.team && it.sleeperId != sleeperId }
+            .sortedWith(compareBy({ it.position.ordinal }, { it.name }))
+    }
+
+    /**
+     * Projects a player under a hypothetical set of teammate absences.
+     *
+     * "What happens to him if the WR1 sits?" is the question a projection cannot
+     * answer and a user asks every Sunday morning. The model already takes
+     * vacated target and carry share as features, so the answer is to recompute
+     * those two and score again -- no new model, no round trip.
+     *
+     * The change is applied as a delta against the bundle's own figure rather
+     * than recomputed from scratch, because the bundle counted absent players
+     * the app cannot see: anyone whose Sleeper id could not be matched, or who
+     * has too little history to be worth projecting, still vacated real usage.
+     * Rebuilding the total from visible team-mates alone would quietly drop them.
+     */
+    fun projectScenario(
+        model: PredictionModel,
+        sleeperId: String,
+        injuryStatus: InjuryStatus,
+        practice: PracticeParticipation? = null,
+        scenario: Scenario
+    ): Projection? {
+        val player = bySleeperId[sleeperId] ?: return null
+        if (scenario.isEmpty) {
+            return project(model, sleeperId, injuryStatus, practice)
+        }
+
+        val slots = FeatureSlots.of(model) ?: return project(model, sleeperId, injuryStatus, practice)
+        var targetDelta = 0.0
+        var carryDelta = 0.0
+
+        scenario.ruledOut.forEach { id ->
+            val teammate = bySleeperId[id] ?: return@forEach
+            // Already counted, or not on this team: nothing to add.
+            if (teammate.team != player.team || teammate.ruledOut) return@forEach
+            targetDelta += teammate.features.at(slots.targetShare)
+            carryDelta += teammate.features.at(slots.carryShare)
+        }
+        scenario.clearedToPlay.forEach { id ->
+            val teammate = bySleeperId[id] ?: return@forEach
+            if (teammate.team != player.team || !teammate.ruledOut) return@forEach
+            targetDelta -= teammate.features.at(slots.targetShare)
+            carryDelta -= teammate.features.at(slots.carryShare)
+        }
+
+        val overrides = mapOf(
+            model.featureNames[slots.vacatedTargets] to
+                (player.features.at(slots.vacatedTargets) + targetDelta).coerceAtLeast(0.0),
+            model.featureNames[slots.vacatedCarries] to
+                (player.features.at(slots.vacatedCarries) + carryDelta).coerceAtLeast(0.0)
+        )
+        val scenarioProjection = project(model, sleeperId, injuryStatus, practice, overrides)
+            ?: return null
+        val baseline = project(model, sleeperId, injuryStatus, practice) ?: return null
+
+        // Vacated usage can only help, which is football rather than fit. The
+        // trees do not know it: on a feature this weak they move either way, and
+        // in practice a receiver's projection can dip slightly when a team-mate
+        // is ruled out. LightGBM refuses monotone constraints on a quantile
+        // objective, so the direction is imposed here instead. It only ever
+        // moves a result back toward the baseline, never past it, so the model
+        // still decides the size of the change -- this decides the sign.
+        return when {
+            targetDelta + carryDelta > 0.0 -> scenarioProjection.atLeast(baseline)
+            targetDelta + carryDelta < 0.0 -> scenarioProjection.atMost(baseline)
+            else -> scenarioProjection
+        }
+    }
+
+    /** Per-quantile max. Ordering survives: max of two ordered triples is ordered. */
+    private fun Projection.atLeast(floorProjection: Projection) = Projection(
+        PointsRange(
+            floor = maxOf(range.floor, floorProjection.range.floor),
+            median = maxOf(range.median, floorProjection.range.median),
+            ceiling = maxOf(range.ceiling, floorProjection.range.ceiling)
+        ),
+        playProbability
+    )
+
+    private fun Projection.atMost(capProjection: Projection) = Projection(
+        PointsRange(
+            floor = minOf(range.floor, capProjection.range.floor),
+            median = minOf(range.median, capProjection.range.median),
+            ceiling = minOf(range.ceiling, capProjection.range.ceiling)
+        ),
+        playProbability
+    )
+
+    /** NaN means "unknown", which contributes nothing to a share that is summed. */
+    private fun DoubleArray.at(index: Int): Double =
+        getOrNull(index)?.takeUnless { it.isNaN() } ?: 0.0
+
     companion object {
         const val SUPPORTED_FORMAT_VERSION = 1
 
@@ -124,6 +286,7 @@ class WeeklyBundle(
                     position = position,
                     team = obj.getValue("team").jsonPrimitive.content,
                     opponent = obj["opponent"]?.jsonPrimitive?.contentOrNull,
+                    ruledOut = obj["out"]?.jsonPrimitive?.booleanOrNull ?: false,
                     // A null here means the feature genuinely has no value, which
                     // the model handles; it must not become 0.0.
                     features = DoubleArray(raw.size) {

@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from nflpredict import bridge, weekly
+from nflpredict import bridge, live, weekly
 from nflpredict.config import OUT
 from nflpredict.features import FEATURES
 from nflpredict.ingest import build_player_weeks
@@ -45,8 +45,9 @@ def _get(url: str):
 
 
 def sleeper_directory():
-    """Sleeper's player payload, reduced to the id bridges build_week needs."""
-    return bridge.build(_get(SLEEPER_PLAYERS))
+    """Sleeper's player payload: the id bridges, plus its live injury view."""
+    payload = _get(SLEEPER_PLAYERS)
+    return (*bridge.build(payload), payload)
 
 
 def main() -> None:
@@ -69,10 +70,15 @@ def main() -> None:
 
     print("loading history...", file=sys.stderr)
     history = build_player_weeks()
-    by_gsis, teams, by_name = sleeper_directory()
+    by_gsis, teams, by_name, payload = sleeper_directory()
+    live_injuries = live.injuries_from_sleeper(payload, season, week)
+    sidelined_now = int((live_injuries.report_code <= 1).sum())
+    print(f"live injury status from Sleeper: {len(live_injuries)} players "
+          f"({sidelined_now} out or doubtful)", file=sys.stderr)
 
     try:
-        rows = weekly.build_week(history, season, week, teams=teams)
+        rows = weekly.build_week(history, season, week, teams=teams,
+                                 live_injuries=live_injuries)
     except ValueError as exc:
         print(f"{exc} -- nothing to build", file=sys.stderr)
         sys.exit(NOTHING_TO_BUILD)
@@ -97,6 +103,11 @@ def main() -> None:
             "position": row.position,
             "team": row.team,
             "opponent": row.opponent,
+            # Whether this player was already counted in their team's vacated
+            # shares when the bundle was built. Without it the app cannot tell
+            # "mark him out" from "he is already out", and a what-if would
+            # double-count the target share he was never going to use.
+            "out": bool(row.report_code <= 1),
             "f": features,
         })
 

@@ -14,6 +14,18 @@ import pandas as pd
 from .config import POSITIONS, QUANTILES
 from .features import FEATURES
 
+# Features where more can only help, as a matter of football rather than of fit.
+# The trees do not know this, and on a weak feature they move either way: ruling
+# out a team-mate can currently lower a receiver's projection slightly.
+#
+# LightGBM rejects `monotone_constraints` with a quantile objective outright
+# ("Cannot use monotone_constraints in quantile objective"), so the guarantee
+# cannot be trained in without giving up the quantiles, which are the point. It
+# is enforced at scoring time instead -- see WeeklyBundle.projectScenario -- and
+# this list is kept here so the two stay in step.
+MONOTONE_INCREASING = ("vacated_target_share", "vacated_carry_share")
+
+
 PARAMS = {
     "objective": "quantile",
     "learning_rate": 0.05,

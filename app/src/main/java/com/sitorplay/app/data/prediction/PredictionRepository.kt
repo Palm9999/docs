@@ -8,6 +8,8 @@ import com.sitorplay.app.domain.model.PracticeParticipation
 import com.sitorplay.app.domain.prediction.ModelBundleParser
 import com.sitorplay.app.domain.prediction.PredictionModel
 import com.sitorplay.app.domain.prediction.Projection
+import com.sitorplay.app.domain.prediction.Scenario
+import com.sitorplay.app.domain.prediction.WeeklyPlayer
 import com.sitorplay.app.domain.prediction.WeeklyBundle
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -181,6 +183,26 @@ class PredictionRepository @Inject constructor(
         401, 403 -> "HTTP $code — the bundle needs an access token, or the one set is not valid"
         404 -> "HTTP 404 — nothing at that URL, or the repository is private and no token is set"
         else -> "HTTP $code"
+    }
+
+    /** Team-mates of a rostered player, for the what-if list. Empty without a bundle. */
+    fun teammatesOf(sleeperId: String?): List<WeeklyPlayer> {
+        val week = bundle ?: return emptyList()
+        return if (sleeperId == null) emptyList() else week.teammatesOf(sleeperId)
+    }
+
+    /** As [projectionFor], but with some team-mates moved in or out of the lineup. */
+    fun projectionFor(player: Player, scenario: Scenario): Projection? {
+        val loaded = model ?: return null
+        val week = bundle ?: return null
+        val sleeperId = player.externalId ?: return null
+        return week.projectScenario(
+            model = loaded,
+            sleeperId = sleeperId,
+            injuryStatus = player.injuryStatus,
+            practice = player.practiceParticipation,
+            scenario = scenario
+        )
     }
 
     private fun readModelAsset(): PredictionModel =
