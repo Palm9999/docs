@@ -185,10 +185,14 @@ class PredictionRepository @Inject constructor(
         else -> "HTTP $code"
     }
 
-    /** Team-mates of a rostered player, for the what-if list. Empty without a bundle. */
+    /**
+     * Team-mates of a rostered player, for the what-if list, busiest first.
+     * Empty without a bundle, which is how the UI knows to hide the section.
+     */
     fun teammatesOf(sleeperId: String?): List<WeeklyPlayer> {
         val week = bundle ?: return emptyList()
-        return if (sleeperId == null) emptyList() else week.teammatesOf(sleeperId)
+        if (sleeperId == null) return emptyList()
+        return week.teammatesOf(sleeperId, model)
     }
 
     /** As [projectionFor], but with some team-mates moved in or out of the lineup. */

@@ -3,12 +3,16 @@ package com.sitorplay.app.ui.playerdetail
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -153,6 +157,7 @@ fun PlayerDetailScreen(
  * phone. It is the question a static projection cannot answer, and the one
  * worth asking on a Sunday morning when a starter is announced inactive.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun WhatIfSection(
     state: WhatIfUiState,
@@ -210,20 +215,44 @@ private fun WhatIfSection(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            state.teammates.take(12).forEach { teammate ->
-                val sittingOut = state.scenario.isOut(teammate.sleeperId, teammate.ruledOut)
-                FilterChip(
-                    selected = sittingOut,
-                    onClick = { onToggle(teammate) },
-                    label = {
-                        Text(
-                            "${teammate.name} · ${teammate.position}" +
-                                if (sittingOut) " — out" else ""
-                        )
-                    },
-                    colors = FilterChipDefaults.filterChipColors()
-                )
+            // Chips wrap instead of stacking: a dozen of them one per row pushes
+            // everything else off screen, and they are meant to be scanned as a
+            // set rather than read as a list.
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                state.teammates.take(12).forEach { teammate ->
+                    val sittingOut = state.scenario.isOut(teammate.sleeperId, teammate.ruledOut)
+                    FilterChip(
+                        selected = sittingOut,
+                        onClick = { onToggle(teammate) },
+                        label = { Text("${shortName(teammate.name)} · ${teammate.position}") },
+                        // The tick is the standard affordance for a selected
+                        // filter chip; the old "— out" suffix reflowed the label
+                        // on every tap, which made the row jump around.
+                        leadingIcon = if (sittingOut) {
+                            {
+                                Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = "sitting out",
+                                    modifier = Modifier.size(FilterChipDefaults.IconSize)
+                                )
+                            }
+                        } else {
+                            null
+                        }
+                    )
+                }
             }
         }
     }
+}
+
+
+/** "Amon-Ra St. Brown" -> "A. St. Brown", so a chip stays one line. */
+private fun shortName(full: String): String {
+    val parts = full.trim().split(" ")
+    if (parts.size < 2) return full
+    return "${parts.first().take(1)}. ${parts.drop(1).joinToString(" ")}"
 }

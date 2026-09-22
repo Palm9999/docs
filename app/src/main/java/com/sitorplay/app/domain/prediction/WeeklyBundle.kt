@@ -146,15 +146,29 @@ class WeeklyBundle(
         return model.project(player.position, features, injuryStatus, practice)
     }
 
-    /** Everyone on a player's NFL team, excluding the player themselves. */
-    fun teammatesOf(sleeperId: String): List<WeeklyPlayer> {
+    /**
+     * Everyone on a player's NFL team, excluding the player themselves.
+     *
+     * Pass [model] to order them by how much of the offence they actually use.
+     * A what-if list is only useful if the player whose absence would matter is
+     * near the top; alphabetical order buries him among backups.
+     */
+    fun teammatesOf(sleeperId: String, model: PredictionModel? = null): List<WeeklyPlayer> {
         val player = bySleeperId[sleeperId] ?: return emptyList()
-        // Sorted by position then name so the list is stable; ordering by usage
-        // would need the model, which this accessor deliberately does not take.
-        return bySleeperId.values
+        val teammates = bySleeperId.values
             .filter { it.team == player.team && it.sleeperId != sleeperId }
-            .sortedWith(compareBy({ it.position.ordinal }, { it.name }))
+
+        val slots = model?.let { FeatureSlots.of(it) }
+            ?: return teammates.sortedWith(compareBy({ it.position.ordinal }, { it.name }))
+
+        return teammates.sortedWith(
+            compareByDescending<WeeklyPlayer> { it.usageShare(slots) }.thenBy { it.name }
+        )
     }
+
+    /** Share of the offence this player has been taking: targets plus carries. */
+    private fun WeeklyPlayer.usageShare(slots: FeatureSlots): Double =
+        features.at(slots.targetShare) + features.at(slots.carryShare)
 
     /**
      * Projects a player under a hypothetical set of teammate absences.
