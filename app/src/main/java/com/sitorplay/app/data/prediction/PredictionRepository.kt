@@ -209,10 +209,30 @@ class PredictionRepository @Inject constructor(
         )
     }
 
-    private fun readModelAsset(): PredictionModel =
-        context.assets.open(MODEL_ASSET).use { stream ->
-            ModelBundleParser.parse(GZIPInputStream(stream).bufferedReader().readText())
-        }
+    /**
+     * Reads the model that ships inside the app.
+     *
+     * It is committed as `model.json.gz`, but that is not the name it has on a
+     * device. aapt reads a gzipped asset as a request to store it deflated: it
+     * strips the `.gz` and lets AssetManager inflate it on the way out, so the
+     * APK holds `assets/model.json` as plain text. Rather than hard-code
+     * whichever of those the current build tools happen to produce, take either
+     * name and sniff the encoding. Getting it wrong throws into the runCatching
+     * in ensureLoaded, leaves the model null, and turns every projection in the
+     * app off without crashing or logging anything a user would notice.
+     */
+    private fun readModelAsset(): PredictionModel {
+        val bytes = MODEL_ASSETS.firstNotNullOfOrNull { name ->
+            runCatching { context.assets.open(name).use { it.readBytes() } }.getOrNull()
+        } ?: throw IOException("No model in assets; looked for ${MODEL_ASSETS.joinToString()}")
+        return ModelBundleParser.parse(
+            if (isGzip(bytes)) decode(bytes) else bytes.decodeToString()
+        )
+    }
+
+    /** Gzip's two magic bytes, which say whether [decode] is needed. */
+    private fun isGzip(bytes: ByteArray): Boolean =
+        bytes.size >= 2 && bytes[0] == 0x1f.toByte() && bytes[1] == 0x8b.toByte()
 
     private fun readGzip(file: File): String =
         GZIPInputStream(file.inputStream()).bufferedReader().use { it.readText() }
@@ -240,7 +260,10 @@ class PredictionRepository @Inject constructor(
     }
 
     private companion object {
-        const val MODEL_ASSET = "model.json.gz"
+        // Both spellings, because which one is in the APK is the packaging
+        // tool's decision, not ours. Kept in sync with tools/check_apk.py,
+        // which reads this list and asserts the APK actually contains one.
+        val MODEL_ASSETS = listOf("model.json", "model.json.gz")
         const val CACHE_NAME = "week_features.json.gz"
         const val GITHUB_API_PREFIX = "https://api.github.com/"
     }

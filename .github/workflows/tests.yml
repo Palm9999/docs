@@ -48,6 +48,15 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
 
+      # Compiling and packaging are still not the same as working. aapt rewrites
+      # gzipped assets -- strips the `.gz`, stores them deflated -- so the name
+      # the app opens is not the name in the repository, and getting that wrong
+      # loaded no model, threw nothing visible, and silently turned off every
+      # projection in an APK that built green. Nothing else here can see it: the
+      # JVM tests never touch a packaged APK.
+      - name: Check the app can read its own model asset
+        run: python3 tools/check_apk.py
+
       # Means every push leaves a debug APK that can be downloaded and side-loaded
       # straight onto a phone, with no local Android Studio needed.
       - name: Upload debug APK
