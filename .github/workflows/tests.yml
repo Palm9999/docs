@@ -26,7 +26,15 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # `packages: ''` is load-bearing. The action's default is
+      # "tools platform-tools", and `tools` was removed from the SDK years ago,
+      # so sdkmanager exits 1 with "Failed to find package 'tools'" before any
+      # Gradle work starts. The runner image already ships the SDK; all this
+      # step needs to do is export ANDROID_HOME.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+
 
       - uses: gradle/actions/setup-gradle@v4
 
