@@ -33,6 +33,8 @@ data class Player(
     val projectedPoints: Double,
     val opponentDefenseRank: Int,
     val injuryStatus: InjuryStatus,
+    /** Practice participation behind [injuryStatus]; far more predictive than the designation alone. */
+    val practiceParticipation: PracticeParticipation = PracticeParticipation.UNKNOWN,
     val rosterSlot: RosterSlot,
     /** Sleeper's player_id, when this player was added via live search. Null for manual entries. */
     val externalId: String? = null
@@ -45,6 +47,7 @@ data class NflPlayer(
     val position: Position,
     val nflTeam: String,
     val injuryStatus: InjuryStatus,
+    val practiceParticipation: PracticeParticipation = PracticeParticipation.UNKNOWN,
     val injuryBodyPart: String? = null,
     val injuryNotes: String? = null
 )
@@ -61,7 +64,8 @@ data class TrendInfo(
 data class WeeklyContext(
     val projectedPoints: Double,
     val opponent: String?,
-    val injuryStatus: InjuryStatus
+    val injuryStatus: InjuryStatus,
+    val practiceParticipation: PracticeParticipation = PracticeParticipation.UNKNOWN
 )
 
 /** Extra context for the player detail screen: injury notes and league-wide trend. */

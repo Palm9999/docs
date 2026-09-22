@@ -7,6 +7,7 @@ import androidx.room.PrimaryKey
 import com.sitorplay.app.domain.model.InjuryStatus
 import com.sitorplay.app.domain.model.Player
 import com.sitorplay.app.domain.model.Position
+import com.sitorplay.app.domain.model.PracticeParticipation
 import com.sitorplay.app.domain.model.RosterSlot
 
 @Entity(
@@ -31,6 +32,7 @@ data class PlayerEntity(
     val projectedPoints: Double,
     val opponentDefenseRank: Int,
     val injuryStatus: InjuryStatus,
+    val practiceParticipation: PracticeParticipation = PracticeParticipation.UNKNOWN,
     val rosterSlot: RosterSlot,
     val externalId: String? = null
 )
@@ -45,6 +47,7 @@ fun PlayerEntity.toDomain(): Player = Player(
     projectedPoints = projectedPoints,
     opponentDefenseRank = opponentDefenseRank,
     injuryStatus = injuryStatus,
+    practiceParticipation = practiceParticipation,
     rosterSlot = rosterSlot,
     externalId = externalId
 )
@@ -59,6 +62,7 @@ fun Player.toEntity(): PlayerEntity = PlayerEntity(
     projectedPoints = projectedPoints,
     opponentDefenseRank = opponentDefenseRank,
     injuryStatus = injuryStatus,
+    practiceParticipation = practiceParticipation,
     rosterSlot = rosterSlot,
     externalId = externalId
 )

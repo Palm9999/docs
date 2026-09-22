@@ -3,12 +3,18 @@ package com.sitorplay.app.ui.playerdetail
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -16,15 +22,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sitorplay.app.domain.model.Call
 import com.sitorplay.app.domain.model.TrendDirection
+import com.sitorplay.app.domain.prediction.WeeklyPlayer
 import com.sitorplay.app.ui.theme.SitRed
 import com.sitorplay.app.ui.theme.StartGreen
 
@@ -36,6 +45,7 @@ fun PlayerDetailScreen(
 ) {
     val recommendation by viewModel.recommendation.collectAsState()
     val extras by viewModel.extras.collectAsState()
+    val whatIf by viewModel.whatIf.collectAsState()
 
     Scaffold(
         topBar = {
@@ -80,6 +90,31 @@ fun PlayerDetailScreen(
                         "Adjusted projection: ${"%.1f".format(current.adjustedProjection)} pts",
                         style = MaterialTheme.typography.bodyLarge
                     )
+                    current.projection?.let { projection ->
+                        // Floor and ceiling are the 15th and 85th percentiles, so
+                        // roughly seven weeks in ten land inside this band.
+                        Text(
+                            "Floor ${"%.1f".format(projection.range.floor)} · " +
+                                "Median ${"%.1f".format(projection.range.median)} · " +
+                                "Ceiling ${"%.1f".format(projection.range.ceiling)}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        if (projection.playProbability < 1.0) {
+                            Text(
+                                "${"%.0f".format(projection.playProbability * 100)}% chance of playing, " +
+                                    "based on the injury report",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    if (whatIf.isAvailable) {
+                        WhatIfSection(
+                            state = whatIf,
+                            onToggle = viewModel::toggleTeammate,
+                            onClear = viewModel::clearScenario
+                        )
+                    }
                     Text("Why:", style = MaterialTheme.typography.titleMedium)
                     current.reasons.forEach { reason ->
                         Text("• $reason", style = MaterialTheme.typography.bodyMedium)
@@ -103,6 +138,91 @@ fun PlayerDetailScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+
+/**
+ * "What if a team-mate sits?"
+ *
+ * The model already takes vacated target and carry share as inputs, so this is
+ * a real re-score rather than a rule of thumb: toggling a team-mate hands his
+ * usage to the rest of the offence and the projection is recomputed on the
+ * phone. It is the question a static projection cannot answer, and the one
+ * worth asking on a Sunday morning when a starter is announced inactive.
+ */
+@Composable
+private fun WhatIfSection(
+    state: WhatIfUiState,
+    onToggle: (WeeklyPlayer) -> Unit,
+    onClear: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("What if a team-mate sits?", style = MaterialTheme.typography.titleMedium)
+                if (!state.scenario.isEmpty) {
+                    TextButton(onClick = onClear) { Text("Reset") }
+                }
+            }
+
+            state.adjusted?.let { adjusted ->
+                Text(
+                    "${"%.1f".format(adjusted.range.median)} pts " +
+                        "(${"%.1f".format(adjusted.range.floor)}–" +
+                        "${"%.1f".format(adjusted.range.ceiling)})",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (state.scenario.isEmpty) FontWeight.Normal else FontWeight.Bold
+                )
+            }
+            if (!state.scenario.isEmpty) {
+                // Under a tenth of a point is not a change a user should act on,
+                // and saying so is more useful than showing "+0.0".
+                val movement = if (kotlin.math.abs(state.delta) < 0.05) {
+                    "Barely moves the projection"
+                } else {
+                    "${if (state.delta > 0) "+" else ""}${"%.1f".format(state.delta)} pts " +
+                        "against the current lineup"
+                }
+                Text(
+                    movement,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (state.delta > 0.05) StartGreen else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Text(
+                "Tap anyone to move them in or out of this week's lineup.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            state.teammates.take(12).forEach { teammate ->
+                val sittingOut = state.scenario.isOut(teammate.sleeperId, teammate.ruledOut)
+                FilterChip(
+                    selected = sittingOut,
+                    onClick = { onToggle(teammate) },
+                    label = {
+                        Text(
+                            "${teammate.name} · ${teammate.position}" +
+                                if (sittingOut) " — out" else ""
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors()
+                )
             }
         }
     }

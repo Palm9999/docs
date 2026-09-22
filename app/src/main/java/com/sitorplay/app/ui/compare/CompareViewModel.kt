@@ -2,9 +2,13 @@ package com.sitorplay.app.ui.compare
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sitorplay.app.data.prediction.PredictionRepository
 import com.sitorplay.app.data.repository.FavoritesRepository
 import com.sitorplay.app.data.sync.NflDataRepository
 import com.sitorplay.app.domain.model.NflPlayer
+import com.sitorplay.app.domain.prediction.Projection
+import com.sitorplay.app.domain.prediction.StartSitAdvisor
+import com.sitorplay.app.domain.prediction.StartSitComparison
 import com.sitorplay.app.domain.usecase.MatchupScoring
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
@@ -28,16 +32,27 @@ data class ComparisonPlayer(
     val projectedPoints: Double = 0.0,
     val opponent: String? = null,
     val opponentDefenseRank: String = "16",
-    val isLoadingContext: Boolean = false
+    val isLoadingContext: Boolean = false,
+    /** The model's range for this player, when this week's bundle covers them. */
+    val projection: Projection? = null
 ) {
     val adjustedProjection: Double
-        get() = opponentDefenseRank.toIntOrNull()?.let {
-            MatchupScoring.adjustedProjection(projectedPoints, it, player.injuryStatus)
-        } ?: 0.0
+        get() = projection?.expectedPoints
+            ?: opponentDefenseRank.toIntOrNull()?.let {
+                MatchupScoring.adjustedProjection(
+                    projectedPoints, it, player.injuryStatus, player.practiceParticipation
+                )
+            } ?: 0.0
 }
 
 data class CompareUiState(
     val activeSlot: CompareSlot = CompareSlot.A,
+    /**
+     * How many points this lineup slot has to produce to win the week. Defaults
+     * to a typical starter's output; the user adjusts it to their actual matchup,
+     * which is what makes the floor-versus-ceiling call meaningful.
+     */
+    val pointsNeeded: Float = 12f,
     val searchQuery: String = "",
     val isSearching: Boolean = false,
     val searchResults: List<NflPlayer> = emptyList(),
@@ -45,12 +60,30 @@ data class CompareUiState(
     val favoriteIds: Set<String> = emptySet(),
     val slotA: ComparisonPlayer? = null,
     val slotB: ComparisonPlayer? = null
-)
+) {
+    /**
+     * The head-to-head, available only when the model covers both players --
+     * a win probability needs a distribution, which a single projected number
+     * cannot provide.
+     */
+    val comparison: StartSitComparison?
+        get() {
+            val a = slotA?.projection ?: return null
+            val b = slotB?.projection ?: return null
+            return StartSitAdvisor.compare(a, b, pointsNeeded.toDouble())
+        }
+
+    val rationale: String?
+        get() = comparison?.rationale(
+            slotA?.player?.name.orEmpty(), slotB?.player?.name.orEmpty()
+        )
+}
 
 @OptIn(FlowPreview::class)
 @HiltViewModel
 class CompareViewModel @Inject constructor(
     private val nflDataRepository: NflDataRepository,
+    private val predictionRepository: PredictionRepository,
     private val favoritesRepository: FavoritesRepository
 ) : ViewModel() {
 
@@ -110,7 +143,13 @@ class CompareViewModel @Inject constructor(
                     current?.copy(
                         isLoadingContext = false,
                         projectedPoints = context?.projectedPoints ?: 0.0,
-                        opponent = context?.opponent
+                        opponent = context?.opponent,
+                        projection = predictionRepository.projectionFor(
+                            sleeperId = player.externalId,
+                            injuryStatus = context?.injuryStatus ?: player.injuryStatus,
+                            practice = context?.practiceParticipation
+                                ?: player.practiceParticipation
+                        )
                     )
                 }
                 if (slot == CompareSlot.A) state.copy(slotA = update(state.slotA))
@@ -124,6 +163,10 @@ class CompareViewModel @Inject constructor(
             if (slot == CompareSlot.A) state.copy(slotA = state.slotA?.copy(opponentDefenseRank = value))
             else state.copy(slotB = state.slotB?.copy(opponentDefenseRank = value))
         }
+    }
+
+    fun onPointsNeededChange(value: Float) {
+        _uiState.update { it.copy(pointsNeeded = value) }
     }
 
     fun clearSlot(slot: CompareSlot) {

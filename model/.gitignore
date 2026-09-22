@@ -1,0 +1,14 @@
+# Downloaded nflverse tables and derived frames - regenerate with run_phase0.py
+data/*.csv
+data/*.parquet
+# Regenerable, except the weekly bundle: it is what the app downloads, so the
+# scheduled job commits it and the history doubles as a record of what was
+# actually served each week.
+artifacts/*
+!artifacts/week.json.gz
+__pycache__/
+*.pyc
+
+# Collected consensus projections are the one data file worth keeping, since they
+# cannot be re-downloaded for a past week.
+!data/consensus_projections.csv
