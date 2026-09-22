@@ -72,6 +72,18 @@ def main() -> None:
         per_pos.append(row)
     print(pd.DataFrame(per_pos).set_index("position").to_string())
 
+    print("\n=== Is the advantage real? (paired bootstrap, 95% CI) ===")
+    print(f"{'position':>9} {'pairs':>6} {'model':>7} {'base':>7} {'advantage':>10}  95% CI")
+    for pos in [*sorted(preds.position.unique()), "ALL"]:
+        subset = preds if pos == "ALL" else preds[preds.position == pos]
+        result = backtest.accuracy_advantage(subset)
+        if not result["pairs"]:
+            continue
+        mark = "" if result["significant"] else "   (includes zero)"
+        print(f"{pos:>9} {result['pairs']:>6} {result['model']:>7.4f} "
+              f"{result['baseline']:>7.4f} {result['advantage']:>+10.4f}  "
+              f"[{result['ci_low']:+.4f}, {result['ci_high']:+.4f}]{mark}")
+
     print("\n=== Interval calibration (p15-p85 should cover ~0.70) ===")
     fit_season, eval_seasons = BACKTEST_SEASONS[0], BACKTEST_SEASONS[1:]
     fit_rows = preds[preds.season == fit_season]

@@ -134,3 +134,64 @@ def play_rate_table(seasons=BACKTEST_SEASONS) -> pd.DataFrame:
         .sort_values("play_rate")
         .reset_index(drop=True)
     )
+
+
+def paired_accuracy(df: pd.DataFrame, pred_col: str, base_col: str, seed: int = 0):
+    """Score the *same* random pairs with two predictors.
+
+    Comparing two independently-sampled accuracies throws away the fact that both
+    face identical match-ups, which is most of the shared noise. Pairing them
+    makes the difference far easier to resolve at these sample sizes.
+    """
+    rng = np.random.default_rng(seed)
+    hits_pred, hits_base = [], []
+    for _, grp in df.groupby(["season", "week", "position"], sort=False):
+        if len(grp) < 2:
+            continue
+        idx = rng.permutation(len(grp))
+        half = len(idx) // 2
+        a, b = grp.iloc[idx[:half]], grp.iloc[idx[half: half * 2]]
+        tied = a.fp.to_numpy() == b.fp.to_numpy()
+        truth = a.fp.to_numpy() > b.fp.to_numpy()
+        for column, out in ((pred_col, hits_pred), (base_col, hits_base)):
+            out.extend(((a[column].to_numpy() > b[column].to_numpy()) == truth)[~tied])
+    return np.array(hits_pred), np.array(hits_base)
+
+
+def accuracy_advantage(
+    df: pd.DataFrame,
+    pred_col: str = "p50",
+    baseline: str = "blend_3_szn",
+    resamples: int = 2000,
+    seed: int = 0,
+) -> dict:
+    """How much the model beats a baseline at ranking, with a bootstrap interval.
+
+    A point estimate on its own invites reading noise as a result. Per position
+    there are only a few thousand match-ups -- under a thousand for quarterbacks
+    -- and at that size a difference of one or two points is not distinguishable
+    from zero. Reporting the interval is what stops a difference that small being
+    quoted as a finding, which is a mistake this project already made once.
+    """
+    scored = df.copy()
+    scored["_base"] = baselines(scored)[baseline]
+    model_hits, base_hits = paired_accuracy(scored, pred_col, "_base", seed)
+    if len(model_hits) == 0:
+        return {"pairs": 0}
+
+    rng = np.random.default_rng(seed + 1)
+    size = len(model_hits)
+    draws = [
+        model_hits[pick].mean() - base_hits[pick].mean()
+        for pick in (rng.integers(0, size, size) for _ in range(resamples))
+    ]
+    low, high = np.percentile(draws, [2.5, 97.5])
+    return {
+        "pairs": size,
+        "model": float(model_hits.mean()),
+        "baseline": float(base_hits.mean()),
+        "advantage": float(model_hits.mean() - base_hits.mean()),
+        "ci_low": float(low),
+        "ci_high": float(high),
+        "significant": bool(low > 0 or high < 0),
+    }

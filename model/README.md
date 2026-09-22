@@ -50,13 +50,13 @@ also has to fit in an APK.
 | TE | 3,557 | 3.41 | 3.69 | 73.2% | 71.7% |
 | QB | 1,910 | 6.21 | 6.43 | 67.5% | 67.1% |
 
-**QB remains the weakest position by a wide margin**, and was an outright
-negative result until the model was shrunk: at 400 trees it ranked quarterbacks
-*worse* than a rolling average (66.7% against 67.1%). The smaller model turns
-that around, but only to 67.5% against 67.1% — a margin thin enough that it
-should not be treated as settled. Quarterbacks have the fewest rows and almost no
-usage variance, since every starter plays every snap, so the opportunity features
-that carry the other positions have nothing to say.
+**QB is the weakest position**, and the per-position numbers above should not be
+read as findings on their own. See the next section: at these sample sizes none
+of them is distinguishable from zero.
+
+Quarterbacks have the fewest rows and almost no usage variance, since every
+starter plays every snap, so the opportunity features that carry the other
+positions have nothing to say about them.
 
 ## What the model actually learned
 
@@ -123,6 +123,58 @@ The single thing most likely to make these numbers fiction:
 Rolling windows deliberately cross the season boundary. Resetting them each
 September left weeks 1–2 with no history and dropped 3,600 rows — including the
 weeks users most want help with.
+
+## How much of this is noise?
+
+`run_phase0.py` reports a paired bootstrap interval on the model's ranking
+advantage over the blended baseline. Paired, because both predictors face the
+same match-ups and comparing two independently-sampled accuracies throws away
+most of the shared noise.
+
+| Position | Pairs | Model | Baseline | Advantage | 95% CI |
+|---|---|---|---|---|---|
+| QB | 945 | 0.6751 | 0.6709 | +0.0042 | [−0.021, +0.030] |
+| RB | 2,153 | 0.7678 | 0.7622 | +0.0056 | [−0.007, +0.019] |
+| TE | 1,680 | 0.7315 | 0.7173 | +0.0143 | [−0.002, +0.031] |
+| WR | 3,376 | 0.7509 | 0.7429 | +0.0080 | [−0.003, +0.018] |
+| **All** | **8,187** | **0.7411** | **0.7277** | **+0.0133** | **[+0.006, +0.021]** |
+
+**Only the overall advantage clears zero.** Every individual position's interval
+contains it, quarterbacks most of all: ±2.5 points on 945 match-ups. The honest
+reading is that the model beats the baseline across a full slate, and that
+per-position claims are below what three seasons can resolve.
+
+This was added because the project had already made the mistake it prevents. The
+QB "weakness" — 67.5% against a 67.1% baseline — was quoted through several
+rounds of work, and a phase was started to fix it, before anyone asked whether a
+0.4 point gap was measurable on 945 samples. It was not. As a demonstration of
+how unstable these estimates are, TE cleared significance in one backtest run and
+not in another whose only difference was the feature set.
+
+A point estimate without an interval invites reading noise as a result, so the
+interval now prints alongside it.
+
+## A rejected attempt at the QB problem
+
+Pass volume was genuinely missing: `attempts`, `completions`, `passing_tds` and
+`passing_epa` were ingested but never rolled into features, leaving quarterbacks
+without the one thing closest to the usage signal that carries every other
+position. A `rush_fp_share` feature was added alongside it to separate mobile
+quarterbacks from pocket passers.
+
+Measured on the full walk-forward backtest, 67 features against 82:
+
+| | Overall MAE | Overall accuracy | QB MAE | QB accuracy |
+|---|---|---|---|---|
+| Current | 4.2803 | **0.7411** | 6.208 | **0.6751** |
+| With QB features | **4.2691** | 0.7401 | **6.148** | 0.6614 |
+
+MAE improves slightly everywhere; ranking accuracy does not, and QB's falls below
+its own baseline. Both differences sit inside the intervals above, so the correct
+description is "no measurable effect", not "it helped" or "it hurt". Changing the
+feature list would have invalidated the shipped model, the weekly bundle and the
+parity fixtures, so the change was reverted. The gap in the data is real and
+recorded here; it simply does not pay for itself.
 
 ## The injury report does not exist early in the week
 

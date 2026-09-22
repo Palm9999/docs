@@ -38,7 +38,12 @@ position) shown on the player detail screen.
 Beyond the heuristic above, the app ships a gradient-boosted model trained on
 free nflverse data (`model/`, see its README for the backtest). Over 2023-2025 it
 ranks start/sit decisions correctly **74.1%** of the time against **71.9%** for
-the heuristic alone.
+the heuristic alone — an advantage of **+1.3 points, 95% CI [+0.6, +2.1]**
+against the strongest baseline.
+
+That interval is the whole claim. Broken down by position none of the individual
+advantages clears zero, so the model is worth having across a full lineup rather
+than demonstrably better at any one position.
 
 It runs **entirely on device**. `domain/prediction/` holds a tree walker that
 evaluates the exported ensemble directly — the model is 299 KB gzipped in
