@@ -6,6 +6,7 @@ import com.sitorplay.app.data.prediction.PredictionRepository
 import com.sitorplay.app.data.repository.FavoritesRepository
 import com.sitorplay.app.data.sync.NflDataRepository
 import com.sitorplay.app.domain.model.NflPlayer
+import com.sitorplay.app.domain.prediction.FormStat
 import com.sitorplay.app.domain.prediction.Projection
 import com.sitorplay.app.domain.prediction.StartSitAdvisor
 import com.sitorplay.app.domain.prediction.StartSitComparison
@@ -34,7 +35,9 @@ data class ComparisonPlayer(
     val opponentDefenseRank: String = "16",
     val isLoadingContext: Boolean = false,
     /** The model's range for this player, when this week's bundle covers them. */
-    val projection: Projection? = null
+    val projection: Projection? = null,
+    /** What this player has actually been producing, for the comparison table. */
+    val form: List<FormStat> = emptyList()
 ) {
     val adjustedProjection: Double
         get() = projection?.expectedPoints
@@ -149,7 +152,8 @@ class CompareViewModel @Inject constructor(
                             injuryStatus = context?.injuryStatus ?: player.injuryStatus,
                             practice = context?.practiceParticipation
                                 ?: player.practiceParticipation
-                        )
+                        ),
+                        form = predictionRepository.formFor(player.externalId)
                     )
                 }
                 if (slot == CompareSlot.A) state.copy(slotA = update(state.slotA))

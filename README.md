@@ -55,6 +55,23 @@ real question is not "how many points" but "which of these two do I start" — a
 that depends on your matchup. Expected points are `P(plays) x E[points | plays]`,
 keeping the two sources of uncertainty separate.
 
+### The stat line behind the number
+
+A projection is one number, and one number is not an argument. Every player
+screen now carries the usage it was built from -- passing, rushing and receiving
+yards, touchdowns, targets, carries, receptions, and share of the team's targets,
+carries and snaps -- over the last three games and the season to date. Two
+windows rather than one, because the three-game column catches a back who has
+just taken over a backfield and the season column says whether it has lasted.
+
+The compare screen shows both players' last three games side by side, aligned
+row for row. Comparing a back with a receiver keeps the rows only one of them
+has, blank on the other side, because "no carries" is itself the answer.
+
+None of this is predicted. These are the same rolled averages the model scores
+on, read out of the weekly bundle already on the phone, so the evidence and the
+projection cannot disagree.
+
 ### What if a team-mate sits?
 
 The player detail screen lists a player's team-mates and lets you move any of

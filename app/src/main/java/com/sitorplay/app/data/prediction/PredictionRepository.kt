@@ -5,7 +5,9 @@ import com.sitorplay.app.data.settings.AppSettingsRepository
 import com.sitorplay.app.domain.model.InjuryStatus
 import com.sitorplay.app.domain.model.Player
 import com.sitorplay.app.domain.model.PracticeParticipation
+import com.sitorplay.app.domain.prediction.FormStat
 import com.sitorplay.app.domain.prediction.ModelBundleParser
+import com.sitorplay.app.domain.prediction.PlayerForm
 import com.sitorplay.app.domain.prediction.PredictionModel
 import com.sitorplay.app.domain.prediction.Projection
 import com.sitorplay.app.domain.prediction.Scenario
@@ -183,6 +185,24 @@ class PredictionRepository @Inject constructor(
         401, 403 -> "HTTP $code — the bundle needs an access token, or the one set is not valid"
         404 -> "HTTP 404 — nothing at that URL, or the repository is private and no token is set"
         else -> "HTTP $code"
+    }
+
+    /**
+     * The stat line behind a player's projection -- yards, touchdowns, targets
+     * and share of the offence, over the last three games and the season.
+     *
+     * Empty without a bundle or for an unmodelled position, which is how the UI
+     * knows to leave the section out rather than draw a table of dashes.
+     */
+    fun formFor(player: Player): List<FormStat> = formFor(player.externalId)
+
+    /** Same, for a player not on the roster -- the compare screen's search results. */
+    fun formFor(sleeperId: String?): List<FormStat> {
+        val loaded = model ?: return emptyList()
+        val week = bundle ?: return emptyList()
+        if (sleeperId == null) return emptyList()
+        val weekly = week[sleeperId] ?: return emptyList()
+        return PlayerForm.of(weekly, loaded)
     }
 
     /**

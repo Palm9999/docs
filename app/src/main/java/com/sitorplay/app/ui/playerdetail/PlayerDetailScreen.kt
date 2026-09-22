@@ -1,11 +1,15 @@
 package com.sitorplay.app.ui.playerdetail
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -18,6 +22,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -34,9 +39,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.sitorplay.app.domain.model.Call
 import com.sitorplay.app.domain.model.TrendDirection
+import com.sitorplay.app.domain.prediction.FormStat
 import com.sitorplay.app.domain.prediction.WeeklyPlayer
 import com.sitorplay.app.ui.theme.SitRed
 import com.sitorplay.app.ui.theme.StartGreen
@@ -50,6 +57,7 @@ fun PlayerDetailScreen(
     val recommendation by viewModel.recommendation.collectAsState()
     val extras by viewModel.extras.collectAsState()
     val whatIf by viewModel.whatIf.collectAsState()
+    val form by viewModel.form.collectAsState()
 
     Scaffold(
         topBar = {
@@ -75,7 +83,12 @@ fun PlayerDetailScreen(
             } else {
                 val callColor = if (current.call == Call.START) StartGreen else SitRed
                 Column(
-                    modifier = Modifier.fillMaxSize().padding(24.dp),
+                    // The stat table pushes this past a phone screen, and an
+                    // un-scrollable Column silently clips whatever does not fit.
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Surface(color = callColor.copy(alpha = 0.15f), shape = MaterialTheme.shapes.medium) {
@@ -112,6 +125,9 @@ fun PlayerDetailScreen(
                             )
                         }
                     }
+                    if (form.isNotEmpty()) {
+                        RecentFormSection(form)
+                    }
                     if (whatIf.isAvailable) {
                         WhatIfSection(
                             state = whatIf,
@@ -144,6 +160,83 @@ fun PlayerDetailScreen(
                 }
             }
         }
+    }
+}
+
+
+/**
+ * The stat line the projection was built from.
+ *
+ * Two windows rather than one, because either alone misleads. The three-game
+ * column catches a back who has just taken over a backfield; the season column
+ * says whether that has lasted or was one good afternoon. A projection is a
+ * single number, and a user who disagrees with it has nothing to argue with
+ * unless the evidence behind it is on the same screen.
+ */
+@Composable
+private fun RecentFormSection(stats: List<FormStat>) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("Recent form", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Per game, before this week.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            StatRow(
+                label = "",
+                lastThree = "Last 3",
+                season = "Season",
+                emphasis = FontWeight.SemiBold
+            )
+            HorizontalDivider()
+            stats.forEach { stat ->
+                StatRow(
+                    label = stat.label,
+                    lastThree = stat.lastThreeText,
+                    season = stat.seasonText
+                )
+            }
+        }
+    }
+}
+
+/**
+ * One line of the table. The two figures are fixed-width and right-aligned so
+ * the columns line up down the card however long the labels are.
+ */
+@Composable
+private fun StatRow(
+    label: String,
+    lastThree: String,
+    season: String,
+    emphasis: FontWeight = FontWeight.Normal
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = emphasis
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            lastThree,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = emphasis,
+            textAlign = TextAlign.End,
+            modifier = Modifier.width(64.dp)
+        )
+        Text(
+            season,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = emphasis,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.End,
+            modifier = Modifier.width(64.dp)
+        )
     }
 }
 

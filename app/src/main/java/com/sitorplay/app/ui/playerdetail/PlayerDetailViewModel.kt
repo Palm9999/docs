@@ -9,6 +9,7 @@ import com.sitorplay.app.data.sync.NflDataRepository
 import com.sitorplay.app.domain.model.PlayerDetailExtras
 import com.sitorplay.app.data.prediction.PredictionRepository
 import com.sitorplay.app.domain.model.Recommendation
+import com.sitorplay.app.domain.prediction.FormStat
 import com.sitorplay.app.domain.prediction.Projection
 import com.sitorplay.app.domain.prediction.Scenario
 import com.sitorplay.app.domain.prediction.WeeklyPlayer
@@ -84,6 +85,21 @@ class PlayerDetailViewModel @Inject constructor(
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * The stat line behind the projection.
+     *
+     * Recomputed when a bundle lands, same as the recommendation: without that
+     * the table would sit empty until the user navigated away and back. Empty
+     * when there is no bundle or the position is not modelled, which is the
+     * signal the screen uses to leave the section out.
+     */
+    val form: StateFlow<List<FormStat>> = combine(
+        recommendation,
+        predictionRepository.status
+    ) { current, _ ->
+        current?.player?.let(predictionRepository::formFor).orEmpty()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _extras = MutableStateFlow(PlayerDetailExtras())
     val extras: StateFlow<PlayerDetailExtras> = _extras.asStateFlow()
